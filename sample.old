@@ -1,0 +1,18 @@
+./benchmark 7680 4320 in8k.rgba out.r10k
+[to_lavc_vid_conv] conversion is reducing subsampling from 4440 to 4200
+time without intermediate: 12.5357761383ms
+time with intermediate: 15.7911043167ms
+cpu implementation time: 128.0401050000ms
+no error
+./benchmark 3840 2160 in4k.rgba out.r10k
+[to_lavc_vid_conv] conversion is reducing subsampling from 4440 to 4200
+time without intermediate: 3.9862720966ms
+time with intermediate: 6.5505280495ms
+cpu implementation time: 32.1321630000ms
+no error
+./benchmark 1920 1080 in.rgba out.r10k
+[to_lavc_vid_conv] conversion is reducing subsampling from 4440 to 4200
+time without intermediate: 1.4335999489ms
+time with intermediate: 1.9947520494ms
+cpu implementation time: 8.0533230000ms
+no error
