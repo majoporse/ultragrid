@@ -1,0 +1,27 @@
+[6/8] Executing 'cuda_gpu_kern_sum' stats report
+
+ Time (%)  Total Time (ns)  Instances  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)                                     Name                                    
+ --------  ---------------  ---------  --------  --------  --------  --------  -----------  ---------------------------------------------------------------------------
+     46.2         58597284        100  585972.8  585981.5    585374    586558        214.1  write_form_intermediate(char *, const char *, int, unsigned long, int, int)
+     27.0         34245302        100  342453.0  342398.5    340927    345246        764.7  write_to_intermediate(char *, int, int, int)                               
+     26.8         33913611        100  339136.1  339022.0    337855    342046        666.6  void write<(int)30, (int)420>(char *, int, const int *, int, int)          
+
+[7/8] Executing 'cuda_gpu_mem_time_sum' stats report
+
+ Time (%)  Total Time (ns)  Count   Avg (ns)    Med (ns)   Min (ns)  Max (ns)  StdDev (ns)           Operation          
+ --------  ---------------  -----  ----------  ----------  --------  --------  -----------  ----------------------------
+     55.1       2278367783    200  11391838.9  11366657.0  11265490  14972866     271524.0  [CUDA memcpy Device-to-Host]
+     44.9       1854646523    800   2318308.2   2421349.5       351   4978316    1586975.1  [CUDA memcpy Host-to-Device]
+      0.0           325567      1    325567.0    325567.0    325567    325567          0.0  [CUDA memset]               
+
+[8/8] Executing 'cuda_gpu_mem_size_sum' stats report
+
+ Total (MB)  Count  Avg (MB)  Med (MB)  Min (MB)  Max (MB)  StdDev (MB)           Operation          
+ ----------  -----  --------  --------  --------  --------  -----------  ----------------------------
+  26542.174    800    33.178    33.178     0.000    66.355       23.475  [CUDA memcpy Host-to-Device]
+  26542.080    200   132.710   132.710   132.710   132.710        0.000  [CUDA memcpy Device-to-Host]
+    235.930      1   235.930   235.930   235.930   235.930        0.000  [CUDA memset]               
+
+Generated:
+    /home/xhatalc/UltraGrid/conversions/report5.nsys-rep
+    /home/xhatalc/UltraGrid/conversions/report5.sqlite
