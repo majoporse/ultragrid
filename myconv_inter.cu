@@ -52,7 +52,7 @@ __global__ void write_form_intermediate(char * __restrict dst_buf, const char *_
     *res_ptr++ = (g & 0xFU) << 4U | b >> 6U;
     *res_ptr++ = (b & 0x3FU) << 2U;
 
-    *dst = res;
+    *(uint32_t *) dst = res;
 }
 
 __global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
@@ -91,8 +91,8 @@ __global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, i
         *res_ptr++ = *src_y2++ << (16U - 10); // Y
         *res_ptr++ = *src_cr << (16U - 10); // V
         *res_ptr++ = 0xFFFFU; // A
-        *(uint64_t *) dst1 = res;
-        dst1+= 4;
+        *(uint64_t *) dst2 = res;
+        dst2+= 4;
     }
 }
 
