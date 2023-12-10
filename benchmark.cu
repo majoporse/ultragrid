@@ -64,7 +64,7 @@ int main(int argc, char *argv[]){
     /* time the conversion without intermediate */
 
     float count_gpu1 = 0;
-    for (int i = 0; i < 1000; ++i){
+    for (int i = 0; i < 100; ++i){
         cudaEventRecord(start1, 0);
         yuvp10le_to_rgb(420, dst, converted, width, height, vc_get_linesize(width, R10k), (int*) rgb_shift, 30);
         cudaMemcpy(converted_from_av.data(), dst, converted_from_av.size(), cudaMemcpyDeviceToHost);
@@ -74,7 +74,7 @@ int main(int argc, char *argv[]){
         cudaEventElapsedTime(&time1, start1, stop1);
         count_gpu1 += time1;
     }
-    count_gpu1 /= 1000.0;
+    count_gpu1 /= 100.0;
 
     /* write the result to file */
     fout1.write(converted_from_av.data(), converted_from_av.size());
@@ -91,7 +91,7 @@ int main(int argc, char *argv[]){
 
     /* time the conversion with intermediate */
     float count_gpu2 = 0;
-    for (int i = 0; i < 1000; ++i){
+    for (int i = 0; i < 100; ++i){
         cudaEventRecord(start2, 0);
         func(converted_from_av.data(), converted);
         cudaEventRecord(stop2, 0);
@@ -100,7 +100,7 @@ int main(int argc, char *argv[]){
         cudaEventElapsedTime(&time2, start2, stop2);
         count_gpu2 += time2;
     }
-    count_gpu2 /= 1000.0;
+    count_gpu2 /= 100.0;
 
     from_lavc_destroy();
 
@@ -113,14 +113,14 @@ int main(int argc, char *argv[]){
     std::vector<char> reference_vec(vc_get_datalen(width, height, R10k));
 
     float count = 0;
-    for (int i = 0; i < 1000; ++i){
+    for (int i = 0; i < 100; ++i){
         auto t1 = std::chrono::high_resolution_clock::now();
         auto from_conv = get_av_to_uv_conversion(AV_PIX_FMT_YUV420P10LE, R10k);
         av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, R10k) , rgb_shift);
         auto t2 = std::chrono::high_resolution_clock::now();
         count += (t2-t1).count();
     }
-    count /= 1000.0;
+    count /= 100.0;
 
     reference.write(reference_vec.data(), converted_from_av.size());
 
