@@ -44,10 +44,15 @@ __global__ void write_form_intermediate(char * __restrict dst_buf, const char *_
     g = CLAMP_FULL(g, 10);
     b = CLAMP_FULL(b, 10);
 
-    *dst++ = r >> 2U;
-    *dst++ = (r & 0x3U) << 6U | g >> 4U;
-    *dst++ = (g & 0xFU) << 4U | b >> 6U;
-    *dst++ = (b & 0x3FU) << 2U;
+    uint32_t res;
+    char *res_ptr = (char *) &res;
+
+    *res_ptr++ = r >> 2U;
+    *res_ptr++ = (r & 0x3U) << 6U | g >> 4U;
+    *res_ptr++ = (g & 0xFU) << 4U | b >> 6U;
+    *res_ptr++ = (b & 0x3FU) << 2U;
+
+    *dst = res;
 }
 
 __global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
@@ -60,26 +65,34 @@ __global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, i
     if (x >= width /2 || y >= height/2)
         return;
 
-    uint16_t *src_y1 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * 2 * y        + 4 * x);
-    uint16_t *src_y2 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * ( 2 * y + 1) + 4 * x);
-    uint16_t *src_cb = (uint16_t *)(void *)(in_frame->data[1] + in_frame->linesize[1] *  y        + 2 * x);
-    uint16_t *src_cr = (uint16_t *)(void *)(in_frame->data[2] + in_frame->linesize[2] *  y        + 2 * x);
+    uint16_t * __restrict src_y1 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * 2 * y        + 4 * x);
+    uint16_t * __restrict src_y2 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * ( 2 * y + 1) + 4 * x);
+    uint16_t * __restrict src_cb = (uint16_t *)(void *)(in_frame->data[1] + in_frame->linesize[1] *  y        + 2 * x);
+    uint16_t * __restrict src_cr = (uint16_t *)(void *)(in_frame->data[2] + in_frame->linesize[2] *  y        + 2 * x);
 
     uint16_t *dst1 = (uint16_t *)(dst_buffer + 2 * y       * pitch) + 4 * 2 * x;
     uint16_t *dst2 = (uint16_t *)(dst_buffer + (2 * y + 1) * pitch) + 4 * 2 * x;
     // each thread does 2 x 2 pixels
     for (int _ = 0; _ < 2; ++_) {
-        *dst1++ = *src_cb << (16U - 10); // U
-        *dst1++ = *src_y1++ << (16U - 10); // Y
-        *dst1++ = *src_cr << (16U - 10); // V
-        *dst1++ = 0xFFFFU; // A
+        uint64_t res = *(uint64_t *) dst1;
+        uint16_t *res_ptr = (uint16_t *) &res;
+        *res_ptr++ = *src_cb << (16U - 10); // U
+        *res_ptr++ = *src_y1++ << (16U - 10); // Y
+        *res_ptr++ = *src_cr << (16U - 10); // V
+        *res_ptr++ = 0xFFFFU; // A
+        *(uint64_t *) dst1 = res;
+        dst1+= 4;
     }
 
     for (int _ = 0; _ < 2; ++_) {
-        *dst2++ = *src_cb << (16U - 10); // U
-        *dst2++ = *src_y2++ << (16U - 10); // Y
-        *dst2++ = *src_cr << (16U - 10); // V
-        *dst2++ = 0xFFFFU; // A
+        uint64_t res = *(uint64_t *) dst2;
+        uint16_t *res_ptr = (uint16_t *) &res;
+        *res_ptr++ = *src_cb << (16U - 10); // U
+        *res_ptr++ = *src_y2++ << (16U - 10); // Y
+        *res_ptr++ = *src_cr << (16U - 10); // V
+        *res_ptr++ = 0xFFFFU; // A
+        *(uint64_t *) dst1 = res;
+        dst1+= 4;
     }
 }
 
