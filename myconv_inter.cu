@@ -147,13 +147,14 @@ const std::map<int, codec_t> intermediate_t{
 
 conv_t get_conversion_from_lavc(AVPixelFormat from, codec_t to) { return conversions.at({from, to}); }
 
-bool from_lavc_init(const AVFrame* frame, codec_t out){
+bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
     if (intermediate_t.find(frame->format) == intermediate_t.end()){
         std::cout << "conversion not supported";
         return false;
     }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, intermediate_t.at(frame->format)));
-    cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, R10k));
+    cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
+    cudaMallocManaged(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
     return true;
 }
 

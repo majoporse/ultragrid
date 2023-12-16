@@ -83,8 +83,8 @@ int main(int argc, char *argv[]){
     /* reset the converted pic */
     cudaMemset(dst, 0, width * vc_get_linesize(width, R10k));
 
-
-    if (!from_lavc_init(converted, R10k))
+    char *dst_cpu = nullptr;
+    if (!from_lavc_init(converted, R10k, &dst_cpu))
         return -1;
     auto func = get_conversion_from_lavc(AV_PIX_FMT_YUV420P10LE, R10k);
 
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]){
     float count_gpu2 = 0;
     for (int i = 0; i < 100; ++i){
         cudaEventRecord(start2, 0);
-        func(converted_from_av.data(), converted);
+        func(dst_cpu, converted);
         cudaEventRecord(stop2, 0);
         cudaEventSynchronize(stop2);
         float time2;
@@ -106,7 +106,7 @@ int main(int argc, char *argv[]){
 
 
     /*write the result to file*/
-    fout2.write(converted_from_av.data(), converted_from_av.size());
+    fout2.write(dst_cpu, vc_get_datalen(width, height, R10k));
 
 
     /* time the cpu implementation */
