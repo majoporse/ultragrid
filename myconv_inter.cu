@@ -158,7 +158,8 @@ bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
     return true;
 }
 
-void from_lavc_destroy(){
+void from_lavc_destroy(char *ptr){
+    cudaFreeHost(ptr);
     cudaFree(intermediate);
     cudaFree(gpu_out_buffer);
 }

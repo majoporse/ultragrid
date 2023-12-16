@@ -55,8 +55,8 @@ int main(int argc, char *argv[]){
     cudaEventCreate(&stop2);
 
     //alloc the dest buffer on gpu
-    char *dst;
-    cudaMalloc(&dst,(width *height *MAX_BPS + MAX_PADDING) * sizeof(char));
+    char *dst_gpu;
+    cudaMalloc(&dst_gpu, (width * height * MAX_BPS + MAX_PADDING) * sizeof(char));
 
     int rgb_shift[] = DEFAULT_RGB_SHIFT_INIT;
     cudaFree(0);
@@ -67,8 +67,8 @@ int main(int argc, char *argv[]){
     float count_gpu1 = 0;
     for (int i = 0; i < 100; ++i){
         cudaEventRecord(start1, 0);
-        yuvp10le_to_rgb(420, dst, converted, width, height, vc_get_linesize(width, R10k), (int*) rgb_shift, 30);
-        cudaMemcpy(dst_cpu1, dst, vc_get_datalen(width, height, R10k), cudaMemcpyDeviceToHost);
+        yuvp10le_to_rgb(420, dst_gpu, converted, width, height, vc_get_linesize(width, R10k), (int*) rgb_shift, 30);
+        cudaMemcpy(dst_cpu1, dst_gpu, vc_get_datalen(width, height, R10k), cudaMemcpyDeviceToHost);
         cudaEventRecord(stop1, 0);
         cudaEventSynchronize(stop1);
         float time1;
@@ -82,10 +82,10 @@ int main(int argc, char *argv[]){
 
 
     /* reset the converted pic */
-    cudaMemset(dst, 0, width * vc_get_linesize(width, R10k));
+    cudaMemset(dst_gpu, 0, width * vc_get_linesize(width, R10k));
 
-    char *dst_cpu = nullptr;
-    if (!from_lavc_init(converted, R10k, &dst_cpu))
+    char *dst_cpu2 = nullptr;
+    if (!from_lavc_init(converted, R10k, &dst_cpu2))
         return -1;
     auto func = get_conversion_from_lavc(AV_PIX_FMT_YUV420P10LE, R10k);
 
@@ -94,7 +94,7 @@ int main(int argc, char *argv[]){
     float count_gpu2 = 0;
     for (int i = 0; i < 100; ++i){
         cudaEventRecord(start2, 0);
-        func(dst_cpu, converted);
+        func(dst_cpu2, converted);
         cudaEventRecord(stop2, 0);
         cudaEventSynchronize(stop2);
         float time2;
@@ -103,11 +103,10 @@ int main(int argc, char *argv[]){
     }
     count_gpu2 /= 100.0;
 
-    from_lavc_destroy();
-
-
     /*write the result to file*/
-    fout2.write(dst_cpu, vc_get_datalen(width, height, R10k));
+    fout2.write(dst_cpu2, vc_get_datalen(width, height, R10k));
+
+    from_lavc_destroy(dst_cpu2);
 
 
     /* time the cpu implementation */
@@ -129,6 +128,6 @@ int main(int argc, char *argv[]){
     std::cout << "time without intermediate: "  << std::fixed  << std::setprecision(10) << count_gpu1 << "ms\n"
               << "time with intermediate: " << std::fixed  << std::setprecision(10) << count_gpu2 << "ms\n"
               << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n";
-
-    cudaFree(dst);
+    cudaFreeHost(dst_cpu1);
+    cudaFree(dst_gpu);
 }

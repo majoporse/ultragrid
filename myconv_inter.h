@@ -18,6 +18,6 @@ conv_t get_conversion_from_lavc(AVPixelFormat from, codec_t to);
 
 bool from_lavc_init(const AVFrame*, codec_t, char **);
 
-void from_lavc_destroy();
+void from_lavc_destroy(char *);
 
 #endif
