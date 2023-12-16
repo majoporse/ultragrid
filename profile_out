@@ -2,17 +2,17 @@
 
  Time (%)  Total Time (ns)  Instances  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)                                     Name                                    
  --------  ---------------  ---------  --------  --------  --------  --------  -----------  ---------------------------------------------------------------------------
-     40.1         58616634        100  586166.3  586173.5    585630    586782        221.6  write_form_intermediate(char *, const char *, int, unsigned long, int, int)
-     36.7         53612328        100  536123.3  536093.5    534814    538045        586.8  write_to_intermediate(char *, int, int, int)                               
-     23.2         33907677        100  339076.8  338926.5    337791    341727        690.5  void write<(int)30, (int)420>(char *, int, const int *, int, int)          
+     40.1         58546857        100  585468.6  585452.5    584924    586013        214.7  write_form_intermediate(char *, const char *, int, unsigned long, int, int)
+     36.7         53565344        100  535653.4  535644.5    534524    537405        559.7  write_to_intermediate(char *, int, int, int)                               
+     23.2         33939522        100  339395.2  339294.0    338142    341375        670.6  void write<(int)30, (int)420>(char *, int, const int *, int, int)          
 
 [7/8] Executing 'cuda_gpu_mem_time_sum' stats report
 
- Time (%)  Total Time (ns)  Count   Avg (ns)    Med (ns)   Min (ns)  Max (ns)  StdDev (ns)           Operation          
- --------  ---------------  -----  ----------  ----------  --------  --------  -----------  ----------------------------
-     54.2       2057007611    200  10285038.1  10271343.5  10207663  10757878      63769.2  [CUDA memcpy Device-to-Host]
-     45.8       1739632508    800   2174540.6   2169623.0       351   4942793    1564568.0  [CUDA memcpy Host-to-Device]
-      0.0           325534      1    325534.0    325534.0    325534    325534          0.0  [CUDA memset]               
+ Time (%)  Total Time (ns)  Count  Avg (ns)   Med (ns)   Min (ns)  Max (ns)  StdDev (ns)           Operation          
+ --------  ---------------  -----  ---------  ---------  --------  --------  -----------  ----------------------------
+     56.8       1775743145    800  2219678.9  2200451.0       384   5003332    1595576.0  [CUDA memcpy Host-to-Device]
+     43.2       1348809913    200  6744049.6  6863432.0   6279676   7218583     449611.0  [CUDA memcpy Device-to-Host]
+      0.0           325759      1   325759.0   325759.0    325759    325759          0.0  [CUDA memset]               
 
 [8/8] Executing 'cuda_gpu_mem_size_sum' stats report
 
@@ -23,5 +23,5 @@
     235.930      1   235.930   235.930   235.930   235.930        0.000  [CUDA memset]               
 
 Generated:
-    /home/xhatalc/UltraGrid/conversions/report14.nsys-rep
-    /home/xhatalc/UltraGrid/conversions/report14.sqlite
+    /home/xhatalc/UltraGrid/conversions/report9.nsys-rep
+    /home/xhatalc/UltraGrid/conversions/report9.sqlite

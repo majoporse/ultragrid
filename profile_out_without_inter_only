@@ -1,0 +1,25 @@
+[6/8] Executing 'cuda_gpu_kern_sum' stats report
+
+ Time (%)  Total Time (ns)  Instances  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)                                Name                               
+ --------  ---------------  ---------  --------  --------  --------  --------  -----------  -----------------------------------------------------------------
+    100.0         33931141        100  339311.4  339278.0    337982    340959        628.4  void write<(int)30, (int)420>(char *, int, const int *, int, int)
+
+[7/8] Executing 'cuda_gpu_mem_time_sum' stats report
+
+ Time (%)  Total Time (ns)  Count  Avg (ns)   Med (ns)   Min (ns)  Max (ns)  StdDev (ns)           Operation          
+ --------  ---------------  -----  ---------  ---------  --------  --------  -----------  ----------------------------
+     59.6        872301396    400  2180753.5  2158948.5       416   4937125    1570239.1  [CUDA memcpy Host-to-Device]
+     40.4        590476197    100  5904762.0  5904143.0   5897215   5914943       3665.3  [CUDA memcpy Device-to-Host]
+      0.0           325886      1   325886.0   325886.0    325886    325886          0.0  [CUDA memset]               
+
+[8/8] Executing 'cuda_gpu_mem_size_sum' stats report
+
+ Total (MB)  Count  Avg (MB)  Med (MB)  Min (MB)  Max (MB)  StdDev (MB)           Operation          
+ ----------  -----  --------  --------  --------  --------  -----------  ----------------------------
+  13271.087    400    33.178    33.178     0.000    66.355       23.489  [CUDA memcpy Host-to-Device]
+  13271.040    100   132.710   132.710   132.710   132.710        0.000  [CUDA memcpy Device-to-Host]
+    235.930      1   235.930   235.930   235.930   235.930        0.000  [CUDA memset]               
+
+Generated:
+    /home/xhatalc/UltraGrid/conversions/report10.nsys-rep
+    /home/xhatalc/UltraGrid/conversions/report10.sqlite

@@ -154,7 +154,7 @@ bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
     }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, intermediate_t.at(frame->format)));
     cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
-    cudaMallocManaged(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
+    cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
     return true;
 }
 

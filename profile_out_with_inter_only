@@ -1,0 +1,26 @@
+[6/8] Executing 'cuda_gpu_kern_sum' stats report
+
+ Time (%)  Total Time (ns)  Instances  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)                                     Name                                    
+ --------  ---------------  ---------  --------  --------  --------  --------  -----------  ---------------------------------------------------------------------------
+     52.3         58647551        100  586475.5  585724.5    585021    596221       2776.6  write_form_intermediate(char *, const char *, int, unsigned long, int, int)
+     47.7         53545882        100  535458.8  535437.5    534333    536861        533.6  write_to_intermediate(char *, int, int, int)                               
+
+[7/8] Executing 'cuda_gpu_mem_time_sum' stats report
+
+ Time (%)  Total Time (ns)  Count  Avg (ns)   Med (ns)   Min (ns)  Max (ns)  StdDev (ns)           Operation          
+ --------  ---------------  -----  ---------  ---------  --------  --------  -----------  ----------------------------
+     59.5        868978982    400  2172447.5  2146229.0       352   4945384    1566727.9  [CUDA memcpy Host-to-Device]
+     40.5        592184124    100  5921841.2  5921636.5   5912612   5941189       4768.6  [CUDA memcpy Device-to-Host]
+      0.0           327166      1   327166.0   327166.0    327166    327166          0.0  [CUDA memset]               
+
+[8/8] Executing 'cuda_gpu_mem_size_sum' stats report
+
+ Total (MB)  Count  Avg (MB)  Med (MB)  Min (MB)  Max (MB)  StdDev (MB)           Operation          
+ ----------  -----  --------  --------  --------  --------  -----------  ----------------------------
+  13271.087    400    33.178    33.178     0.000    66.355       23.489  [CUDA memcpy Host-to-Device]
+  13271.040    100   132.710   132.710   132.710   132.710        0.000  [CUDA memcpy Device-to-Host]
+    235.930      1   235.930   235.930   235.930   235.930        0.000  [CUDA memset]               
+
+Generated:
+    /home/xhatalc/UltraGrid/conversions/report6.nsys-rep
+    /home/xhatalc/UltraGrid/conversions/report6.sqlite

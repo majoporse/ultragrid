@@ -5,7 +5,7 @@ MKDIR_P = mkdir -p
 vpath %.c $(SRCDIR) $(SRCDIR)/tools
 vpath %.cpp $(SRCDIR) $(SRCDIR)/tools
 vpath %.cu $(SRCDIR) $(SRCDIR)/conversions
-CUDA_CXX = /usr/local/cuda-12.0/bin/nvcc
+CUDA_CXX = /usr/local/cuda/bin/nvcc
 %.o : %.c
 	$(MKDIR_P) $(dir $@)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@

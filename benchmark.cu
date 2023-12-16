@@ -43,7 +43,8 @@ int main(int argc, char *argv[]){
     struct to_lavc_vid_conv *to_av_conv = to_lavc_vid_conv_init(R10k, width, height, AV_PIX_FMT_YUV420P10LE, 1);
     AVFrame *converted = to_lavc_vid_conv(to_av_conv, r10k_vec.data());
 
-    std::vector<char> converted_from_av(vc_get_datalen(width, height, R10k));
+    char *dst_cpu1;
+    cudaMallocHost(&dst_cpu1, vc_get_datalen(width, height, R10k));
 
     // timing
     cudaEvent_t start1, stop1, start2, stop2;
@@ -67,7 +68,7 @@ int main(int argc, char *argv[]){
     for (int i = 0; i < 100; ++i){
         cudaEventRecord(start1, 0);
         yuvp10le_to_rgb(420, dst, converted, width, height, vc_get_linesize(width, R10k), (int*) rgb_shift, 30);
-        cudaMemcpy(converted_from_av.data(), dst, converted_from_av.size(), cudaMemcpyDeviceToHost);
+        cudaMemcpy(dst_cpu1, dst, vc_get_datalen(width, height, R10k), cudaMemcpyDeviceToHost);
         cudaEventRecord(stop1, 0);
         cudaEventSynchronize(stop1);
         float time1;
@@ -77,7 +78,7 @@ int main(int argc, char *argv[]){
     count_gpu1 /= 100.0;
 
     /* write the result to file */
-    fout1.write(converted_from_av.data(), converted_from_av.size());
+    fout1.write(dst_cpu1, vc_get_datalen(width, height, R10k));
 
 
     /* reset the converted pic */
@@ -122,7 +123,7 @@ int main(int argc, char *argv[]){
     }
     count /= 100.0;
 
-    reference.write(reference_vec.data(), converted_from_av.size());
+    reference.write(reference_vec.data(), reference_vec.size());
 
     //print time
     std::cout << "time without intermediate: "  << std::fixed  << std::setprecision(10) << count_gpu1 << "ms\n"
