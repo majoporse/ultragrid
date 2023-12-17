@@ -18,7 +18,7 @@ char *intermediate;
 char *gpu_out_buffer;
 
 __global__ void write_form_intermediate(char * __restrict dst_buf, const char *__restrict src,
-                int pitch, size_t pitch_in, int width, int height){
+                                        int pitch, size_t pitch_in, int width, int height){
 
     // yuv 4:4:4 interleaved -> R10k
     size_t x_pos = blockDim.x * blockIdx.x + threadIdx.x;
@@ -55,8 +55,7 @@ __global__ void write_form_intermediate(char * __restrict dst_buf, const char *_
     *(uint32_t *) dst = res;
 }
 
-__global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
-    //yuv 4:2:0 planar -> yuv 4:4:4 interleaved
+__global__ void yuv420p_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
 
     AVFrame *in_frame = &gpu_frame;
     size_t x = blockDim.x * blockIdx.x + threadIdx.x;
@@ -65,10 +64,10 @@ __global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, i
     if (x >= width /2 || y >= height/2)
         return;
 
-    uint16_t * __restrict src_y1 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * 2 * y        + 4 * x);
-    uint16_t * __restrict src_y2 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * ( 2 * y + 1) + 4 * x);
-    uint16_t * __restrict src_cb = (uint16_t *)(void *)(in_frame->data[1] + in_frame->linesize[1] *  y        + 2 * x);
-    uint16_t * __restrict src_cr = (uint16_t *)(void *)(in_frame->data[2] + in_frame->linesize[2] *  y        + 2 * x);
+    uint16_t * __restrict src_y1 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * 2 * y       + 4 * x);
+    uint16_t * __restrict src_y2 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] * (2 * y + 1) + 4 * x);
+    uint16_t * __restrict src_cb = (uint16_t *)(void *)(in_frame->data[1] + in_frame->linesize[1] *  y          + 2 * x);
+    uint16_t * __restrict src_cr = (uint16_t *)(void *)(in_frame->data[2] + in_frame->linesize[2] *  y          + 2 * x);
 
     uint16_t *dst1 = (uint16_t *)(dst_buffer + 2 * y       * pitch) + 4 * 2 * x;
     uint16_t *dst2 = (uint16_t *)(dst_buffer + (2 * y + 1) * pitch) + 4 * 2 * x;
@@ -94,6 +93,31 @@ __global__ void write_to_intermediate(char * __restrict dst_buffer, int pitch, i
         *(uint64_t *) dst2 = res;
         dst2+= 4;
     }
+}
+
+__global__ void yuv444_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
+
+    AVFrame *in_frame = &gpu_frame;
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width || y >= height)
+        return;
+
+    uint16_t * __restrict src_y1 = (uint16_t *)(void *)(in_frame->data[0] + in_frame->linesize[0] *  y + x);
+    uint16_t * __restrict src_cb = (uint16_t *)(void *)(in_frame->data[1] + in_frame->linesize[1] *  y + x);
+    uint16_t * __restrict src_cr = (uint16_t *)(void *)(in_frame->data[2] + in_frame->linesize[2] *  y + x);
+    uint16_t *dst1 = (uint16_t *)(dst_buffer + y * pitch) + 4 * x;
+
+    uint64_t res = *(uint64_t *) dst1;
+    uint16_t *res_ptr = (uint16_t *) &res;
+
+    *res_ptr++ = *src_cb << (16U - 10); // U
+    *res_ptr++ = *src_y1 << (16U - 10); // Y
+    *res_ptr++ = *src_cr << (16U - 10); // V
+    *res_ptr++ = 0xFFFFU; // A
+
+    *(uint64_t *) dst1 = res;
 }
 
 
@@ -125,7 +149,7 @@ void convert_from_lavc_yuv_to_rgb(int subsampling, char * __restrict dst, const 
     dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    write_to_intermediate<<<grid1, block>>>(intermediate, vc_get_linesize(width, Y416), width, height);
+    yuv420p_to_intermediate<<<grid1, block>>>(intermediate, vc_get_linesize(width, Y416), width, height);
     write_form_intermediate<<<grid2, block>>>(gpu_out_buffer, intermediate, pitch, vc_get_linesize(width, Y416), width, height);
 
     //copy the converted image back to the host
