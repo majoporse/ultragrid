@@ -14,10 +14,14 @@
 
 __device__ AVFrame gpu_frame;
 
+#define YUV_INTER 0
+#define RGB_INTER 1
+#define BLOCK_SIZE 32
+
 char *intermediate;
 char *gpu_out_buffer;
 
-__global__ void write_form_intermediate(char * __restrict dst_buf, const char *__restrict src,
+__global__ void write_from_yuv_to_rgb(char * __restrict dst_buf, const char *__restrict src,
                                         int pitch, size_t pitch_in, int width, int height){
 
     // yuv 4:4:4 interleaved -> R10k
@@ -56,7 +60,7 @@ __global__ void write_form_intermediate(char * __restrict dst_buf, const char *_
 }
 
 __global__ void yuv420p_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
-
+    // yuv 420p -> yuv 444 i
     AVFrame *in_frame = &gpu_frame;
     size_t x = blockDim.x * blockIdx.x + threadIdx.x;
     size_t y = blockDim.y * blockIdx.y + threadIdx.y;
@@ -120,10 +124,8 @@ __global__ void yuv444_to_intermediate(char * __restrict dst_buffer, int pitch, 
     *(uint64_t *) dst1 = res;
 }
 
-
-#define BLOCK_SIZE 32
-
-void convert_from_lavc_yuv_to_rgb(int subsampling, char * __restrict dst, const AVFrame *frame, int out_bit_depth)
+template<int out_bit_depth>
+void convert_from_yuv_inter_to_rgb(char * __restrict dst, const AVFrame *frame)
 {
     size_t width = frame->width;
     size_t height = frame->height;
@@ -134,49 +136,81 @@ void convert_from_lavc_yuv_to_rgb(int subsampling, char * __restrict dst, const 
     assert((uintptr_t) frame->linesize[1] % 2 == 0); // U
     assert((uintptr_t) frame->linesize[2] % 2 == 0); // V
 
+    assert(out_bit_depth == 24 || out_bit_depth == 30 || out_bit_depth == 32);
+
+    //execute the conversion
+    dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+
+    write_from_yuv_to_rgb<<<grid2, block>>>(gpu_out_buffer, intermediate, pitch, vc_get_linesize(width, Y416), width, height);
+}
+
+template<int subsampling>
+int convert_yuv_to_inter(const AVFrame *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+
+    assert((uintptr_t) gpu_out_buffer % 4 == 0);
+    assert((uintptr_t) frame->linesize[0] % 2 == 0); // Y
+    assert((uintptr_t) frame->linesize[1] % 2 == 0); // U
+    assert((uintptr_t) frame->linesize[2] % 2 == 0); // V
 
     assert(subsampling == 422 || subsampling == 420);
-    assert(out_bit_depth == 24 || out_bit_depth == 30 || out_bit_depth == 32);
+
+    //execute the conversion
+    dim3 grid1 = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+
+    yuv420p_to_intermediate<<<grid1, block>>>(intermediate, vc_get_linesize(width, Y416), width, height);
+    return YUV_INTER;
+}
+
+const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
+        {AV_PIX_FMT_YUV420P10LE, convert_yuv_to_inter<420>}
+};
+
+const std::map<int, void (*) (char * __restrict dst, const AVFrame *frame)> conversions_from_yuv_inter = {
+        {R10k, convert_from_yuv_inter_to_rgb<30>}
+};
+
+const std::map<int, void (*) (char *, const AVFrame *)> conversions_from_rgb_inter = {
+//        {AV_PIX_FMT_YUV420P10LE, convert_from_yuv<AV_PIX_FMT_YUV420P10LE>}
+};
+
+bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
 
     //RAII wrapper for gpu allocations
     AVF_GPU_wrapper new_frame(frame);
 
     //copy host avframe to device
     cudaMemcpyToSymbol(gpu_frame, &(new_frame.frame), sizeof(AVFrame));
+//    std::cout << frame->format << '\n';
 
-    //execute the conversion
-    dim3 grid1 = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE );
-    dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
-    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    auto converter_to = conversions_to_inter.at(frame->format);
+    auto format = converter_to(frame);
 
-    yuv420p_to_intermediate<<<grid1, block>>>(intermediate, vc_get_linesize(width, Y416), width, height);
-    write_form_intermediate<<<grid2, block>>>(gpu_out_buffer, intermediate, pitch, vc_get_linesize(width, Y416), width, height);
+    if (format == YUV_INTER){
+        auto converter_from = conversions_from_yuv_inter.at(to);
+        converter_from(dst, frame);
+    } else if (format == RGB_INTER){
+        auto converter_from = conversions_from_rgb_inter.at(to);
+        converter_from(dst, frame);
+    } else {
+        //error
+    }
 
     //copy the converted image back to the host
-    cudaMemcpy(dst, gpu_out_buffer, vc_get_datalen(width, height, R10k), cudaMemcpyDeviceToHost);
+    cudaMemcpy(dst, gpu_out_buffer, vc_get_datalen(frame->width, frame->height, to), cudaMemcpyDeviceToHost);
+    return true;
 }
-
-template<AVPixelFormat AV_PIX_FMT_YUV420P10LE, codec_t R10k>
-void convert_yuv_to_rgb(char * __restrict dst_buffer, const AVFrame *frame){
-    convert_from_lavc_yuv_to_rgb(420, dst_buffer, frame, 30);
-}
-
-const std::map<std::tuple<AVPixelFormat, codec_t>, void (*) (char *, const AVFrame *)> conversions = {
-        {{AV_PIX_FMT_YUV420P10LE, R10k}, convert_yuv_to_rgb<AV_PIX_FMT_YUV420P10LE, R10k>}
-};
-
-const std::map<int, codec_t> intermediate_t{
-        {AV_PIX_FMT_YUV420P10LE, Y416}
-};
-
-conv_t get_conversion_from_lavc(AVPixelFormat from, codec_t to) { return conversions.at({from, to}); }
 
 bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
-    if (intermediate_t.find(frame->format) == intermediate_t.end()){
+    if (conversions_to_inter.find(frame->format) == conversions_to_inter.end()
+        || conversions_from_yuv_inter.find(out) == conversions_from_yuv_inter.end()){
         std::cout << "conversion not supported";
         return false;
     }
-    cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, intermediate_t.at(frame->format)));
+    cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, Y416));
     cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
     cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
     return true;

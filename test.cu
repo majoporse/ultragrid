@@ -65,8 +65,8 @@ int main(int argc, char *argv[]){
     codec_t out_codec = get_codec_from_file_extension(argv[5]);
 
     std::ifstream fin(argv[3], std::ifstream::ate | std::ifstream::binary);
-    std::ofstream fout1(std::string{"test_out"} + argv[5], std::ofstream::binary);
-    std::ofstream reference("reference.r10k", std::ofstream::binary);
+    std::ofstream fout1(std::string{"test_out."} + argv[5], std::ofstream::binary);
+    std::ofstream reference("test_reference.r10k", std::ofstream::binary);
 
     assert (width && height && fin && fout1 && reference
             && in_codec != AV_PIX_FMT_NONE && out_codec != VIDEO_CODEC_NONE);
@@ -87,7 +87,7 @@ int main(int argc, char *argv[]){
 
     //avframe in converted codec
     AVFrame *converted = get_avframe(width, height, in_codec);
-    std::cout << in_codec;
+//    std::cout << in_codec;
     convertFrame(frame, converted, in_codec);
 
     // timing
@@ -95,25 +95,15 @@ int main(int argc, char *argv[]){
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-
-    //alloc the dest buffer on gpu
-    char *dst_gpu;
-    cudaMalloc(&dst_gpu, (width * height * MAX_BPS + MAX_PADDING) * sizeof(char));
-
-    int rgb_shift[] = DEFAULT_RGB_SHIFT_INIT;
-    cudaFree(0);
-
     char *dst_cpu = nullptr;
     if (!from_lavc_init(converted, out_codec, &dst_cpu))
         return -1;
-    auto func = get_conversion_from_lavc(in_codec, out_codec);
-
 
     /* time the conversion with intermediate */
     float count_gpu = 0;
     for (int i = 0; i < 100; ++i){
         cudaEventRecord(start, 0);
-        func(dst_cpu, converted);
+        convert_from_lavc(converted, dst_cpu, out_codec);
         cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         float time;

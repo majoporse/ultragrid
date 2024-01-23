@@ -13,8 +13,7 @@
 
 typedef void (*conv_t)(char * __restrict dst, const AVFrame* frame);
 
-
-conv_t get_conversion_from_lavc(AVPixelFormat from, codec_t to);
+bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to);
 
 bool from_lavc_init(const AVFrame*, codec_t, char **);
 

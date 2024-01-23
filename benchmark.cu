@@ -54,7 +54,7 @@ AVFrame * get_avframe(int width, int height, AVPixelFormat p){
 }
 
 int main(int argc, char *argv[]){
-    if (argc != 6){
+    if (argc != 4){
         printf("bad input\n <width> <height> <in_name>\n");
         return 1;
     }
@@ -87,7 +87,6 @@ int main(int argc, char *argv[]){
 
     //avframe in converted codec
     AVFrame *converted = get_avframe(width, height, in_codec);
-    std::cout << in_codec;
     convertFrame(frame, converted, in_codec);
 
     // timing
@@ -130,14 +129,12 @@ int main(int argc, char *argv[]){
     char *dst_cpu2 = nullptr;
     if (!from_lavc_init(converted, out_codec, &dst_cpu2))
         return -1;
-    auto func = get_conversion_from_lavc(in_codec, out_codec);
-
 
     /* time the conversion with intermediate */
     float count_gpu2 = 0;
     for (int i = 0; i < 100; ++i){
         cudaEventRecord(start2, 0);
-        func(dst_cpu2, converted);
+        convert_from_lavc(converted, dst_cpu2, out_codec);
         cudaEventRecord(stop2, 0);
         cudaEventSynchronize(stop2);
         float time2;
@@ -174,7 +171,7 @@ int main(int argc, char *argv[]){
     std::cout << cudaGetErrorString(cudaGetLastError());
 
     //clean-up
-    from_lavc_destroy(dst_cpu2);
+//    from_lavc_destroy(dst_cpu2);
     cudaFreeHost(dst_cpu1);
     cudaFree(dst_gpu);
 
