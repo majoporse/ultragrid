@@ -288,6 +288,31 @@ __global__ void gbrap_to_intermediate(char * __restrict dst_buffer, int pitch, i
     }
 }
 
+template<typename IN_T, int bit_shift, bool has_alpha>
+__global__ void rgb_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height)
+{
+    AVFrame *in_frame = &gpu_frame;
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width || y >= height)
+        return;
+
+    void *src_row = in_frame->data[0] + in_frame->linesize[0] *  y;
+    void *dst_row = dst_buffer + y * pitch;
+
+    IN_T *src = ((IN_T *) src_row) + (has_alpha ? 4 : 3) * x;
+    uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
+
+    *dst++ = *src++ << bit_shift;
+    *dst++ = *src++ << bit_shift;
+    *dst++ = *src++ << bit_shift;
+    if constexpr (has_alpha){
+        *dst = *src;
+    } else{
+        *dst = 0xFFFFU;
+    }
+}
 /**************************************************************************************************************/
 /*                                              RGB FROM                                                      */
 /**************************************************************************************************************/
@@ -413,6 +438,19 @@ int convert_grb_to_inter(const AVFrame *frame){
     return RGB_INTER;
 }
 
+template<typename T, int bit_shift, bool has_alpha>
+int convert_rgb_to_inter(const AVFrame *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+
+    rgb_to_intermediate<T, bit_shift, has_alpha><<<grid, block>>>(intermediate, pitch, width, height);
+    return RGB_INTER;
+}
+
 
 const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         // 10-bit YUV
@@ -442,7 +480,7 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
 
         {AV_PIX_FMT_AYUV64, convert_ayuv64_to_y416},
 
-        //RGB
+        //GBR
         {AV_PIX_FMT_GBRP, convert_grb_to_inter<char, 8, false>},
         {AV_PIX_FMT_GBRAP, convert_grb_to_inter<char, 8, true>},
 
@@ -453,6 +491,12 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         {AV_PIX_FMT_GBRAP10LE, convert_grb_to_inter<uint16_t, 6, true>},
         {AV_PIX_FMT_GBRAP12LE, convert_grb_to_inter<uint16_t, 4, true>},
         {AV_PIX_FMT_GBRAP16LE, convert_grb_to_inter<uint16_t, 0, true>},
+        //RGB
+        {AV_PIX_FMT_RGB24, convert_rgb_to_inter<char, 8, false>},
+        {AV_PIX_FMT_RGB48LE, convert_rgb_to_inter<uint16_t, 0, false>},
+
+        {AV_PIX_FMT_RGBA64LE, convert_rgb_to_inter<uint16_t, 0, true>},
+        {AV_PIX_FMT_RGBA, convert_rgb_to_inter<char, 8, true>},
 
 };
 

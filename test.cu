@@ -121,7 +121,7 @@ int main(int argc, char *argv[]){
         auto from_conv = get_av_to_uv_conversion(in_codec, out_codec);
 //    std::cout << "1\n" << from_conv.valid << "\n";
         if (!from_conv.valid){
-            std::cout << "not valid conversion";
+            std::cout << "not a valid conversion for cpu\n";
             break;
         }
         av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, R10k) , rgb_shift);
@@ -139,7 +139,7 @@ int main(int argc, char *argv[]){
     //print time
     std::cout << "gpu implementation time: "  << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"
               << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n";
-    std::cout << cudaGetErrorString(cudaGetLastError());
+    std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
 
     //clean-up
     from_lavc_destroy(dst_cpu);
