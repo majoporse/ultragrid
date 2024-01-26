@@ -67,7 +67,6 @@ int main(int argc, char *argv[]){
     std::ifstream fin(argv[3], std::ifstream::ate | std::ifstream::binary);
     std::ofstream fout1(std::string{"test_out."} + argv[5], std::ofstream::binary);
     std::ofstream reference("test_reference.r10k", std::ofstream::binary);
-
     assert (width && height && fin && fout1 && reference
             && in_codec != AV_PIX_FMT_NONE && out_codec != VIDEO_CODEC_NONE);
     size_t in_size = vc_get_datalen(width, height, RGBA);
@@ -115,11 +114,17 @@ int main(int argc, char *argv[]){
 
     /* time the cpu implementation */
     std::vector<char> reference_vec(vc_get_datalen(width, height, out_codec));
+    int rgb_shift[] = DEFAULT_RGB_SHIFT_INIT;
 
     float count = 0;
     for (int i = 0; i < 100; ++i){
         auto t1 = std::chrono::high_resolution_clock::now();
         auto from_conv = get_av_to_uv_conversion(in_codec, out_codec);
+//    std::cout << "1\n" << from_conv.valid << "\n";
+        if (!from_conv.valid){
+            std::cout << "not valid conversion";
+            break;
+        }
         av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, R10k) , rgb_shift);
         auto t2 = std::chrono::high_resolution_clock::now();
         count += (t2-t1).count();
@@ -139,7 +144,6 @@ int main(int argc, char *argv[]){
 
     //clean-up
     from_lavc_destroy(dst_cpu);
-    cudaFree(dst_gpu);
 
     cudaEventDestroy(start);
     cudaEventDestroy(stop);

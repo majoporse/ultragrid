@@ -18,16 +18,20 @@ struct AVF_GPU_wrapper{
         cudaMalloc(&(frame.data[0]), frame.linesize[0] * frame.height);
         cudaMalloc(&(frame.data[1]), frame.linesize[1] * frame.height);
         cudaMalloc(&(frame.data[2]), frame.linesize[2] * frame.height);
+        cudaMalloc(&(frame.data[3]), frame.linesize[2] * frame.height);
+
 
         cudaMemcpy(frame.data[0], new_frame->data[0], frame.linesize[0] * frame.height, cudaMemcpyHostToDevice);
-        cudaMemcpy(frame.data[1], new_frame->data[1], frame.linesize[1] * frame.height, cudaMemcpyHostToDevice);
-        cudaMemcpy(frame.data[2], new_frame->data[2], frame.linesize[2] * frame.height, cudaMemcpyHostToDevice);
+        if (frame.data[1]) cudaMemcpy(frame.data[1], new_frame->data[1], frame.linesize[1] * frame.height, cudaMemcpyHostToDevice);
+        if (frame.data[2]) cudaMemcpy(frame.data[2], new_frame->data[2], frame.linesize[2] * frame.height, cudaMemcpyHostToDevice);
+        if (frame.data[3]) cudaMemcpy(frame.data[2], new_frame->data[2], frame.linesize[2] * frame.height, cudaMemcpyHostToDevice);
     }
 
     ~AVF_GPU_wrapper(){
         cudaFree(frame.data[0]);
         cudaFree(frame.data[1]);
         cudaFree(frame.data[2]);
+        cudaFree(frame.data[3]);
     }
 };
 
