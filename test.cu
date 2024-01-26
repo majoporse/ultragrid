@@ -39,8 +39,8 @@ void convertFrame(AVFrame* srcFrame, AVFrame* dstFrame, enum AVPixelFormat dstFo
 AVFrame * get_avframe(int width, int height, AVPixelFormat p){
     AVFrame *frame = av_frame_alloc();
     if (!frame) {
-        fprintf(stderr, "Error allocating AVFrame\n");
-        return NULL;
+        std::cout << "Error allocating AVFrame\n";
+        return nullptr;
     }
 
     // Set the frame properties
@@ -80,8 +80,7 @@ int main(int argc, char *argv[]){
     //RGB -> avframe
     AVFrame *frame = get_avframe(width, height, AV_PIX_FMT_RGBA);
 
-    int linesize[1] = { 3 * width };
-    av_image_fill_arrays(frame->data, linesize, reinterpret_cast<const uint8_t *>(fin_data.data()),
+    av_image_fill_arrays(frame->data, frame->linesize, reinterpret_cast<const uint8_t *>(fin_data.data()),
                          AV_PIX_FMT_RGBA, width, height, 1);
 
     //avframe in converted codec
