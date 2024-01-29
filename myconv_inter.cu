@@ -18,47 +18,344 @@ __device__ AVFrame gpu_frame;
 #define RGB_INTER 1
 #define BLOCK_SIZE 32
 
+#ifdef WORDS_BIGENDIAN
+#define BYTE_SWAP(x) (3 - x)
+#else
+#define BYTE_SWAP(x) x
+#endif
+
+
 char *intermediate;
 char *gpu_out_buffer;
 
+template<typename SRC, typename DEST>
+__device__ void R10k_from_rgb(const SRC *src, DEST *dst1, int shift){
+    uint32_t *dst = (uint32_t *) dst1;
+    uint16_t r = *src++ >> shift;
+    uint16_t g = *src++ >> shift;
+    uint16_t b = *src++ >> shift;
+    // B5-B0 XX | G3-G0 B9-B6 | R1-R0 G9-G4 | R9-R2
+    *dst = (b & 0x3FU) << 26U | 0x3000000U | (g & 0xFU) << 20U | (b >> 6U) << 16U | (r & 0x3U) << 14U | (g >> 4U) << 8U | r >> 2U;
+}
+
+template<typename SRC, typename DEST>
+__device__ void RGB_from_rgb(const SRC *src, DEST *dst, bool has_alpha, int shift){
+    *dst++ = *src++ >> shift;
+    *dst++ = *src++ >> shift;
+    *dst++ = *src++ >> shift;
+    if (has_alpha)
+        *dst++ = *src++ >> shift;
+}
+
+__device__ void rgb_to_r12l(char * __restrict dst, auto GET_NEXT)
+{
+    comp_type_t r, g, b;
+    comp_type_t tmp;
+
+    GET_NEXT( r, g, b); // 0
+    dst[BYTE_SWAP(0)] = r & 0xFFU;
+    dst[BYTE_SWAP(1)] = (g & 0xFU) << 4U | r >> 8U;
+    dst[BYTE_SWAP(2)] = g >> 4U;
+    dst[BYTE_SWAP(3)] = b & 0xFFU;
+    tmp = b >> 8U;
+
+    GET_NEXT( r, g, b); // 1
+    dst[4 + BYTE_SWAP(0)] = (r & 0xFU) << 4U | tmp;
+    dst[4 + BYTE_SWAP(1)] = r >> 4U;
+    dst[4 + BYTE_SWAP(2)] = g & 0xFFU;
+    dst[4 + BYTE_SWAP(3)] = (b & 0xFU) << 4U | g >> 8U;
+
+    dst[8 + BYTE_SWAP(0)] = b >> 4U;
+    GET_NEXT( r, g, b); // 2
+    dst[8 + BYTE_SWAP(1)] = r & 0xFFu;
+    dst[8 + BYTE_SWAP(2)] = (g & 0xFU) << 4U | r >> 8U;
+    dst[8 + BYTE_SWAP(3)] = g >> 4U;
+
+    dst[12 + BYTE_SWAP(0)] = b & 0xFFU;
+    tmp = b >> 8U;
+    GET_NEXT( r, g, b); // 3
+    dst[12 + BYTE_SWAP(1)] = (r & 0xFU) << 4U | tmp;
+    dst[12 + BYTE_SWAP(2)] = r >> 4U;
+    dst[12 + BYTE_SWAP(3)] = g & 0xFFU;
+
+    dst[16 + BYTE_SWAP(0)] = (b & 0xFU) << 4U | g >> 8U;
+    dst[16 + BYTE_SWAP(1)] = b >> 4U;
+    GET_NEXT( r, g, b); // 4
+    dst[16 + BYTE_SWAP(2)] = r & 0xFFU;
+    dst[16 + BYTE_SWAP(3)] = (g & 0xFU) << 4U | r >> 8U;
+
+    dst[20 + BYTE_SWAP(0)] = g >> 4U;
+    dst[20 + BYTE_SWAP(1)] = b & 0xFFU;
+    tmp = b >> 8U;
+    GET_NEXT( r, g, b); // 5
+    dst[20 + BYTE_SWAP(2)] = (r & 0xFU) << 4U | tmp;
+    dst[20 + BYTE_SWAP(3)] = r >> 4U;
+
+    dst[24 + BYTE_SWAP(0)] = g & 0xFFU;
+    dst[24 + BYTE_SWAP(1)] = (b & 0xFU) << 4U | g >> 8U;
+    dst[24 + BYTE_SWAP(2)] = b >> 4U;
+    GET_NEXT( r, g, b); // 6
+    dst[24 + BYTE_SWAP(3)] = r & 0xFFU;
+
+    dst[28 + BYTE_SWAP(0)] = (g & 0xFU) << 4U | r >> 8U;
+    dst[28 + BYTE_SWAP(1)] = g >> 4U;
+    dst[28 + BYTE_SWAP(2)] = b & 0xFFU;
+    tmp = b >> 8U;
+    GET_NEXT( r, g, b); // 7
+    dst[28 + BYTE_SWAP(3)] = (r & 0xFU) << 4U | tmp;
+
+    dst[32 + BYTE_SWAP(0)] = r >> 4U;
+    dst[32 + BYTE_SWAP(1)] = g & 0xFFU;
+    dst[32 + BYTE_SWAP(2)] = (b & 0xFU) << 4U | g >> 8U;
+    dst[32 + BYTE_SWAP(3)] = b >> 4U;
+}
+
+__device__ void yuv_to_v210(uint32_t * __restrict d, auto GET_NEXT){
+    comp_type_t y1, y2, u ,v;
+
+    GET_NEXT(y1, y2, u, v);
+    *d++ = u | y1 << 10 | v << 20;
+    *d = y2;
+
+    GET_NEXT(y1, y2, u, v);
+    *d |= u << 10 | y1 << 20;
+    *++d = v | y2 << 10;
+
+    GET_NEXT(y1, y2, u, v);
+    *d |= u << 20;
+    *++d = y1 | v << 10 | y2 << 20;
+}
+
+template<typename DST, bool is_reversed>
+__device__ void uyvy_from_yuv(DST *dst, auto GET_VALS){
+    DST u, y0, v, y1;
+    GET_VALS(u, y0, v, y1);
+
+    if constexpr (!is_reversed){
+        *dst++ =  u;
+        *dst++ = y0;
+        *dst++ =  v;
+        *dst = y1;
+    } else{
+        *dst++ = y0;
+        *dst++ = u;
+        *dst++ = y1;
+        *dst = v;
+    }
+}
+
+/**************************************************************************************************************/
+/*                                          KERNELS FROM YUV                                                  */
+/**************************************************************************************************************/
+template <typename IN_T, codec_t codec, int BIT_DEPTH>
 __global__ void write_from_yuv_to_rgb(char * __restrict dst_buf, const char *__restrict src,
                                         int pitch, size_t pitch_in, int width, int height){
 
     // yuv 4:4:4 interleaved -> R10k
-    size_t x_pos = blockDim.x * blockIdx.x + threadIdx.x;
-    size_t y_pos = blockDim.y * blockIdx.y + threadIdx.y;
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
 
-    if (x_pos >= width || y_pos >= height )
+    if (x >= width || y >= height )
         return;
 
-    char *dst = dst_buf + y_pos * pitch + 4 * x_pos;
+    void *dst_row = dst_buf + pitch * y;
 
-//    assert((uintptr_t) src % 2 == 0);
-    const uint16_t *in = (uint16_t *) (src + y_pos * pitch_in + 4 * 2 * x_pos) ;
-    comp_type_t y, u, v, r, g, b;
+
+    const uint16_t *in = (uint16_t *) (src + y * pitch_in + 4 * 2 * x) ;
+    comp_type_t y1, u, v, r, g, b, a;
 
     u = *in++ - (1<<15);
-    y = Y_SCALE * (*in++ - (1<<12));
-    v = *in - (1<<15);
+    y1 = Y_SCALE * (*in++ - (1<<12));
+    v = *in++ - (1<<15);
 
-    r = (YCBCR_TO_R_709_SCALED(y, u, v) >> (COMP_BASE + 6U));
-    g = (YCBCR_TO_G_709_SCALED(y, u, v) >> (COMP_BASE + 6U));
-    b = (YCBCR_TO_B_709_SCALED(y, u, v) >> (COMP_BASE + 6U));
-    r = CLAMP_FULL(r, 10);
-    g = CLAMP_FULL(g, 10);
-    b = CLAMP_FULL(b, 10);
+    r = (YCBCR_TO_R_709_SCALED(y1, u, v) >> (COMP_BASE + 16-BIT_DEPTH));
+    g = (YCBCR_TO_G_709_SCALED(y1, u, v) >> (COMP_BASE + 16-BIT_DEPTH));
+    b = (YCBCR_TO_B_709_SCALED(y1, u, v) >> (COMP_BASE + 16-BIT_DEPTH));
+    r = CLAMP_FULL(r, BIT_DEPTH);
+    g = CLAMP_FULL(g, BIT_DEPTH);
+    b = CLAMP_FULL(b, BIT_DEPTH);
 
-    uint32_t res;
-    char *res_ptr = (char *) &res;
+    a = 0xFFFFU; //default alpha
+    comp_type_t rgb[] = {r, g, b, a};
 
-    *res_ptr++ = r >> 2U;
-    *res_ptr++ = (r & 0x3U) << 6U | g >> 4U;
-    *res_ptr++ = (g & 0xFU) << 4U | b >> 6U;
-    *res_ptr++ = (b & 0x3FU) << 2U;
-
-    *(uint32_t *) dst = res;
+    if constexpr (codec == R10k){
+        R10k_from_rgb((comp_type_t *) &rgb, ((IN_T *) dst_row) + 4 * x, 0);
+    } else if constexpr (codec == RGB){
+        RGB_from_rgb((comp_type_t *) &rgb, ((IN_T *) dst_row) + 3 * x, false, 0);
+    } else if constexpr (codec == RGBA){
+        rgb[3] = *in;
+        RGB_from_rgb((comp_type_t *) &rgb, ((IN_T *) dst_row) + 4 * x, true, 0);
+    } else if (codec == RG48){
+        RGB_from_rgb((comp_type_t *) &rgb, ((IN_T *) dst_row) + 3 * x, false, 0);
+    }
 }
 
+__global__ void write_yuv_to_r12l(char * __restrict dst_buf, const char *__restrict src_buf,
+                                  int pitch, size_t pitch_in, int width, int height)
+{
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 8 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 8 * 4 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    char *dst = ((char *)dst_row) + 36 * x;
+
+    auto GET_NEXT = [in=src](auto &r, auto &g, auto &b) mutable {
+        comp_type_t y1, u, v;
+        u = *in++ - (1 << 15);
+        y1 = Y_SCALE * (*in++ - (1 << 12));
+        v = *in++ - (1 << 15);
+        in++;
+        r = (YCBCR_TO_R_709_SCALED(y1, u, v) >> (COMP_BASE + 4U));
+        g = (YCBCR_TO_G_709_SCALED(y1, u, v) >> (COMP_BASE + 4U));
+        b = (YCBCR_TO_B_709_SCALED(y1, u, v) >> (COMP_BASE + 4U));
+        r = CLAMP_FULL(r, 12);
+        g = CLAMP_FULL(g, 12);
+        b = CLAMP_FULL(b, 12);
+    };
+    rgb_to_r12l(dst, GET_NEXT);
+}
+
+template<bool is_reversed>
+__global__ void write_from_yuv_to_uyvy(char * __restrict dst_buf, const char *__restrict src_buf,
+                                         int pitch, size_t pitch_in, int width, int height){
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 2 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const char *src = ((const char *) src_row) + 4 * 2 * 2 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    char *dst = ((char *) dst_row) + 4 * x;
+
+    auto GET_VALS = [src](auto &u, auto &y0, auto &v, auto &y1){
+        u = (src[1] + src[9]) / 2; // U
+        y0 = src[3]; // Y0
+        v = (src[5] + src[13]) / 2; // V
+        y1 = src[11]; // Y1
+    };
+
+    uyvy_from_yuv<char, is_reversed>(dst, GET_VALS);
+}
+
+__global__ void write_from_yuv_to_v210(char * __restrict dst_buf, const char *__restrict src_buf,
+                                       int pitch, size_t pitch_in, int width, int height){
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 6 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 3 * 2 * 4 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    uint32_t *dst = ((uint32_t *)dst_row) + 4 * x;
+
+    auto FETCH_BLOCK = [in = src](auto &y1, auto &y2, auto &u, auto &v) mutable {
+
+        u = *in++ >> 6;
+        y1 = *in++ >> 6;
+        v = *in++ >> 6;
+        in++;
+
+        u += *in++ >> 6;
+        y2 = *in++ >> 6;
+        v += *in++ >> 6;
+        in++;
+
+        u = u / 2 ;
+        v = v / 2 ;
+    };
+    yuv_to_v210(dst, FETCH_BLOCK);
+}
+
+__global__ void write_from_yuv_to_y216(char * __restrict dst_buf, const char *__restrict src_buf,
+                                  int pitch, size_t pitch_in, int width, int height)
+{
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 2 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 4 * 2 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
+
+    auto GET_VALS = [src](auto &u, auto &y0, auto &v, auto &y1){
+        u = (src[0] + src[4]) / 2; // U
+        y0 = src[1]; // Y0
+        v = (src[2] + src[6]) / 2; // V
+        y1 = src[5]; // Y1
+    };
+
+    uyvy_from_yuv<uint16_t, true>(dst, GET_VALS);
+}
+
+/**************************************************************************************************************/
+/*                                            KERNELS FROM RGB                                                */
+/**************************************************************************************************************/
+
+
+template <bool is_reversed>
+__global__ void write_from_rgb_to_uyvy(char * __restrict dst_buf, const char *__restrict src_buf,
+                              int pitch, size_t pitch_in, int width, int height){
+
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 2 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 4 * 2 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    char *dst = ((char *)dst_row) + 4 * x;
+
+    auto GET_VALS = [src](auto &u, auto &y1, auto &v, auto &y2) mutable {
+        int r, g, b, ty1, ty2, tu, tv;
+        r = *src++ >> 8;
+        g = *src++ >> 8;
+        b = *src++ >> 8;
+        src++;
+
+        ty1 = 11993 * r + 40239 * g + 4063 * b + (1<<20);
+        tu  = -6619 * r -22151 * g + 28770 * b;
+        tv  = 28770 * r - 26149 * g - 2621 * b;
+
+        r = *src++ >> 8;
+        g = *src++ >> 8;
+        b = *src++ >> 8;
+
+        ty2 = 11993 * r + 40239 * g + 4063 * b + (1<<20);
+        tu += -6619 * r -22151 * g + 28770 * b;
+        tv += 28770 * r - 26149 * g - 2621 * b;
+
+        tu = tu / 2 + (1<<23);
+        tv = tv / 2 + (1<<23);
+
+        u = tu >> 16;
+        v = tv >> 16;
+        y1 = ty1 >> 16;
+        y2 = ty2 >> 16;
+    };
+
+    uyvy_from_yuv<char, is_reversed>(dst, GET_VALS);
+}
+
+template<typename OUT_T, codec_t codec>
 __global__ void write_from_rgb_to_rgb(char * __restrict dst_buf, const char *__restrict src_buf,
                                     int pitch, size_t pitch_in, int width, int height){
 
@@ -72,14 +369,170 @@ __global__ void write_from_rgb_to_rgb(char * __restrict dst_buf, const char *__r
     const uint16_t *src = ((const uint16_t *) src_row) + 4 * x;
 
     void * dst_row = dst_buf + pitch * y;
-    uint32_t *dst = ((uint32_t *) dst_row) + x;
 
-    unsigned r = *src++ >> 6;
-    unsigned g = *src++ >> 6;
-    unsigned b = *src++ >> 6;
-    // B5-B0 XX | G3-G0 B9-B6 | R1-R0 G9-G4 | R9-R2
-    *dst++ = (b & 0x3FU) << 26U | 0x3000000U | (g & 0xFU) << 20U | (b >> 6U) << 16U | (r & 0x3U) << 14U | (g >> 4U) << 8U | r >> 2U;
+    if constexpr (codec == R10k){
+        R10k_from_rgb(src, ((OUT_T *) dst_row) + 4 * x, 6);
+    } else if constexpr (codec == RGB){
+        RGB_from_rgb(src, ((OUT_T *) dst_row) + 3 * x, false, 8);
+    } else if constexpr (codec == RGBA){
+        RGB_from_rgb(src, ((OUT_T *) dst_row) + 4 * x, true, 8);
+    } else if constexpr (codec == RG48){
+        RGB_from_rgb(src, ((OUT_T *) dst_row) + 3 * x, false, 0);
+    }
 }
+
+__global__ void write_from_rgb_to_r12l(char * __restrict dst_buf, const char *__restrict src_buf,
+                               int pitch, size_t pitch_in, int width, int height){
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 8 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 8 * 4 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    char *dst = ((char *)dst_row) + 36 * x;
+
+    auto GET_NEXT = [in=src](auto &r, auto &g, auto &b) mutable {
+        r = *in++ >> 4;
+        g = *in++ >> 4;
+        b = *in++ >> 4;
+        in++;
+    };
+    rgb_to_r12l(dst, GET_NEXT);
+}
+
+__global__ void write_from_rgb_to_v210(char * __restrict dst_buf, const char *__restrict src_buf,
+                                       int pitch, size_t pitch_in, int width, int height){
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 6 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 3 * 2 * 4 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    uint32_t *dst = ((uint32_t *)dst_row) + 4 * x;
+
+    auto FETCH_BLOCK = [in = src](auto &y1, auto &y2, auto &u, auto &v) mutable {
+        comp_type_t r, g, b;
+
+        r = *in++;
+        g = *in++;
+        b = *in++;
+        in++;
+
+        y1 = (RGB_TO_Y_709_SCALED(r, g, b) >> (COMP_BASE + (16 - 10))) + (1 << 6);
+        u = RGB_TO_CB_709_SCALED(r, g, b) >> (COMP_BASE + (16 - 10));
+        v = RGB_TO_CR_709_SCALED(r, g, b) >> (COMP_BASE + (16 - 10));
+
+        r = *in++;
+        g = *in++;
+        b = *in++;
+        in++;
+
+        y2 = (RGB_TO_Y_709_SCALED(r, g, b) >> (COMP_BASE + (16 - 10))) + (1 << 6);
+        u += RGB_TO_CB_709_SCALED(r, g, b) >> (COMP_BASE + (16 - 10));
+        v += RGB_TO_CR_709_SCALED(r, g, b) >> (COMP_BASE + (16 - 10));
+
+        u = u / 2 + (1 << 9);
+        v = v / 2 + (1 << 9);
+
+        y1 = CLAMP_LIMITED_Y(y1, 10);
+        y2 = CLAMP_LIMITED_Y(y2, 10);
+        u = CLAMP_LIMITED_CBCR(u, 10);
+        v = CLAMP_LIMITED_CBCR(v, 10);
+    };
+    yuv_to_v210(dst, FETCH_BLOCK);
+}
+
+
+__global__ void write_from_rgb_to_y216(char * __restrict dst_buf, const char *__restrict src_buf,
+                                       int pitch, size_t pitch_in, int width, int height){
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width / 2 || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 4 * 2 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
+
+    auto FETCH_BLOCK = [in = src](auto &u, auto &y1, auto &v, auto &y2) mutable {
+        comp_type_t r, g, b;
+
+        r = *in++;
+        g = *in++;
+        b = *in++;
+        in++;
+
+        y1 = (RGB_TO_Y_709_SCALED(r, g, b) >> COMP_BASE);
+        u = (RGB_TO_CB_709_SCALED(r, g, b) >> COMP_BASE);
+        v = (RGB_TO_CR_709_SCALED(r, g, b) >> COMP_BASE);
+
+        r = *in++;
+        g = *in++;
+        b = *in++;
+        in++;
+
+        y2 = (RGB_TO_Y_709_SCALED(r, g, b) >> COMP_BASE);
+        u = (u + (RGB_TO_CB_709_SCALED(r, g, b) >> COMP_BASE) / 2) + (1<<15);
+        v = (v + (RGB_TO_CR_709_SCALED(r, g, b) >> COMP_BASE) / 2) + (1<<15);
+
+        y1 = CLAMP_LIMITED_Y(y1, 16);
+        y2 = CLAMP_LIMITED_Y(y2, 16);
+        u = CLAMP_LIMITED_CBCR(u, 16);
+        v = CLAMP_LIMITED_CBCR(v, 16);
+    };
+
+    uyvy_from_yuv<uint16_t, true>(dst, FETCH_BLOCK);
+}
+__global__ void write_from_rgb_to_y416(char * __restrict dst_buf, const char *__restrict src_buf,
+                                       int pitch, size_t pitch_in, int width, int height){
+
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width || y >= height)
+        return;
+
+    const void *src_row = src_buf + pitch_in * y;
+    const uint16_t *src = ((const uint16_t *) src_row) + 4 * x;
+
+    void * dst_row = dst_buf + pitch * y;
+    uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
+
+    comp_type_t r, g, b, y1, u, v;
+
+    r = *src++;
+    g = *src++;
+    b = *src++;
+
+    y1 = (RGB_TO_Y_709_SCALED(r, g, b) >> COMP_BASE)+ (1<<12);
+    u = (RGB_TO_CB_709_SCALED(r, g, b) >> COMP_BASE)+ (1<<15);
+    v = (RGB_TO_CR_709_SCALED(r, g, b) >> COMP_BASE)+ (1<<15);
+
+    y1 = CLAMP_LIMITED_Y(y1, 16);
+    u = CLAMP_LIMITED_CBCR(u, 16);
+    v = CLAMP_LIMITED_CBCR(v, 16);
+
+
+    *dst++ = u;
+    *dst++ = y1;
+    *dst++ = v;
+    *dst   = *src;
+}
+
+/**************************************************************************************************************/
+/*                                            KERNELS TO                                                      */
+/**************************************************************************************************************/
 
 __global__ void ayuv64_to_y416(char * __restrict dst_buffer, int pitch, int width, int height)
 {
@@ -144,7 +597,6 @@ __global__ void p010le_to_inter(char * __restrict dst_buffer, int pitch, int wid
         tmp = *src_cbcr++ << bit_shift;
         *dst1++ = tmp;
         *dst2++ = tmp;
-
         //A
         *dst1++ = 0xFFFFU;
         *dst2++ = 0xFFFFU;
@@ -317,11 +769,11 @@ __global__ void rgb_to_intermediate(char * __restrict dst_buffer, int pitch, int
 /*                                              RGB FROM                                                      */
 /**************************************************************************************************************/
 
-//template<int bit_shift>
-void convert_from_rgb_inter_to_rgb(char * __restrict dst, const AVFrame *frame){
+template<typename T, codec_t out>
+void convert_from_rgb_inter_to_rgb(const AVFrame *frame){
     size_t width = frame->width;
     size_t height = frame->height;
-    size_t pitch = vc_get_linesize(width, R10k);
+    size_t pitch = vc_get_linesize(width, out);
 
     assert((uintptr_t) gpu_out_buffer % 4 == 0);
     assert((uintptr_t) frame->linesize[0] % 2 == 0); // Y
@@ -329,38 +781,143 @@ void convert_from_rgb_inter_to_rgb(char * __restrict dst, const AVFrame *frame){
     assert((uintptr_t) frame->linesize[2] % 2 == 0); // V
 
     //execute the conversion
-    dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    //same linesize as Y416
-    write_from_rgb_to_rgb<<<grid2, block>>>(gpu_out_buffer, intermediate, pitch, vc_get_linesize(width, Y416), width, height);
+    write_from_rgb_to_rgb<T, out>
+            <<<grid, block>>>(gpu_out_buffer, intermediate, pitch, vc_get_linesize(width, Y416), width, height);
+}
+
+template<bool is_reversed>
+void convert_from_rgb_to_uyvy(const AVFrame *frame){
+     size_t width = frame->width;
+     size_t height = frame->height;
+     size_t pitch = vc_get_linesize(width, UYVY);
+     size_t pitch_in = vc_get_linesize(width, Y416);
+
+     dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+     write_from_rgb_to_uyvy<is_reversed><<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_rgb_to_r12l(const AVFrame  *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, R12L);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width / 6 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_rgb_to_r12l<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_rgb_to_v210(const AVFrame  *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, v210);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width / 6 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_rgb_to_v210<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_rgb_to_y216(const AVFrame  *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, Y216);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_rgb_to_y216<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_rgb_to_y416(const AVFrame *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, Y416);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_rgb_to_y416<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
 }
 
 /**************************************************************************************************************/
 /*                                              YUV FROM                                                      */
 /**************************************************************************************************************/
 
-template<int out_bit_depth>
-void convert_from_yuv_inter_to_rgb(char * __restrict dst, const AVFrame *frame)
+template<typename T, codec_t codec, int d>
+void convert_from_yuv_inter_to_rgb(const AVFrame *frame)
 {
     size_t width = frame->width;
     size_t height = frame->height;
-    size_t pitch = vc_get_linesize(width, R10k);
+    size_t pitch = vc_get_linesize(width, codec);
+    size_t pitch_in = vc_get_linesize(width, Y416);
 
     assert((uintptr_t) gpu_out_buffer % 4 == 0);
     assert((uintptr_t) frame->linesize[0] % 2 == 0); // Y
     assert((uintptr_t) frame->linesize[1] % 2 == 0); // U
     assert((uintptr_t) frame->linesize[2] % 2 == 0); // V
 
-    assert(out_bit_depth == 24 || out_bit_depth == 30 || out_bit_depth == 32);
-
     //execute the conversion
-    dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    write_from_yuv_to_rgb<<<grid2, block>>>(gpu_out_buffer, intermediate, pitch, vc_get_linesize(width, Y416), width, height);
+    write_from_yuv_to_rgb<T, codec, d><<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
 }
 
+template <bool IS_REVERSED>
+void convert_from_yuv_to_uyvy(const AVFrame *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, UYVY);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width/2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_yuv_to_uyvy<IS_REVERSED><<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_yuv_to_r12l(const AVFrame  *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, R12L);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width / 8 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_yuv_to_r12l<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_yuv_to_v210(const AVFrame  *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, v210);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width / 6 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_yuv_to_v210<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_yuv_to_y216(const AVFrame  *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    size_t pitch = vc_get_linesize(width, Y216);
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    dim3 grid = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+    write_from_yuv_to_y216<<<grid, block>>>(gpu_out_buffer, intermediate, pitch, pitch_in, width, height);
+}
+
+void convert_from_yuv_to_y416(const AVFrame *frame){
+    size_t width = frame->width;
+    size_t height = frame->height;
+    cudaMemcpy((void *)gpu_out_buffer, (void *) intermediate, vc_get_datalen(width, height, Y416), cudaMemcpyDeviceToDevice);
+}
 /**************************************************************************************************************/
 /*                                                YUV TO                                                      */
 /**************************************************************************************************************/
@@ -372,10 +929,10 @@ int convert_p010le_to_inter(const AVFrame *frame){
     size_t pitch = vc_get_linesize(width, Y416);
 
     //execute the conversion
-    dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    p010le_to_inter<T, i><<<grid2, block>>>(intermediate, pitch, width, height);
+    p010le_to_inter<T, i><<<grid, block>>>(intermediate, pitch, width, height);
     return YUV_INTER;
 }
 
@@ -406,23 +963,22 @@ int convert_yuvp_to_inter(const AVFrame *frame){
     assert(subsampling == 422 || subsampling == 420 || subsampling == 444);
 
     //execute the conversion
-    dim3 grid1 = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE );
-    dim3 grid2 = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+    dim3 grid;
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    if constexpr (subsampling == 420){
-        yuvp_to_intermediate<T, 420, bit_shift><<<grid1, block>>>(intermediate, pitch, width, height);
-    } else if constexpr (subsampling == 422){
-        yuvp_to_intermediate<T, 422, bit_shift><<<grid1, block>>>(intermediate, pitch, width, height);
-    } else if constexpr (subsampling == 444){
-        yuv444p_to_intermediate<T, bit_shift><<<grid2, block>>>(intermediate, pitch, width, height);
+    if constexpr (subsampling < 444){
+        grid = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE );
+        yuvp_to_intermediate<T, subsampling, bit_shift><<<grid, block>>>(intermediate, pitch, width, height);
+    }else{
+        grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
+        yuv444p_to_intermediate<T, bit_shift><<<grid, block>>>(intermediate, pitch, width, height);
     }
 
     return YUV_INTER;
 }
 
 /**************************************************************************************************************/
-/*                                               RGB TO                                                      */
+/*                                               RGB TO                                                       */
 /**************************************************************************************************************/
 
 template<typename T, int bit_shift, bool has_alpha>
@@ -451,6 +1007,9 @@ int convert_rgb_to_inter(const AVFrame *frame){
     return RGB_INTER;
 }
 
+/**************************************************************************************************************/
+/*                                                LIST                                                        */
+/**************************************************************************************************************/
 
 const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         // 10-bit YUV
@@ -500,12 +1059,33 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
 
 };
 
-const std::map<int, void (*) (char * __restrict dst, const AVFrame *frame)> conversions_from_yuv_inter = {
-        {R10k, convert_from_yuv_inter_to_rgb<30>}
+const std::map<int, void (*) (const AVFrame *frame)> conversions_from_yuv_inter = {
+        {R10k, convert_from_yuv_inter_to_rgb<char, R10k, 10>},
+        {RGB, convert_from_yuv_inter_to_rgb<char, RGB, 8>},
+        {RGBA, convert_from_yuv_inter_to_rgb<char, RGBA, 8>},
+        {RG48, convert_from_yuv_inter_to_rgb<uint16_t, RG48, 16>},
+
+        {UYVY, convert_from_yuv_to_uyvy<false>},
+        {YUYV, convert_from_yuv_to_uyvy<true>},
+        {R12L, convert_from_yuv_to_r12l},
+        {v210, convert_from_yuv_to_v210},
+        {Y216, convert_from_yuv_to_y216},
+        {Y416, convert_from_yuv_to_y416}
 };
 
-const std::map<int, void (*) (char *, const AVFrame *)> conversions_from_rgb_inter = {
-        {R10k, convert_from_rgb_inter_to_rgb}
+const std::map<int, void (*) (const AVFrame *)> conversions_from_rgb_inter = {
+        {R10k, convert_from_rgb_inter_to_rgb<char, R10k>},
+        {RGB, convert_from_rgb_inter_to_rgb<char, RGB>},
+        {RGBA, convert_from_rgb_inter_to_rgb<char, RGBA>},
+        {RG48, convert_from_rgb_inter_to_rgb<uint16_t, RG48>},
+
+        {UYVY, convert_from_rgb_to_uyvy<false>},
+        {YUYV, convert_from_rgb_to_uyvy<true>}, //idk how to test it ... but should work ig
+        {R12L, convert_from_rgb_to_r12l},
+        {v210, convert_from_rgb_to_v210},
+        {Y216, convert_from_rgb_to_y216},
+        {Y416, convert_from_rgb_to_y416}
+
 };
 
 bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
@@ -522,10 +1102,10 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
 
     if (format == YUV_INTER){
         auto converter_from = conversions_from_yuv_inter.at(to);
-        converter_from(dst, frame);
+        converter_from(frame);
     } else if (format == RGB_INTER){
         auto converter_from = conversions_from_rgb_inter.at(to);
-        converter_from(dst, frame);
+        converter_from(frame);
     } else {
         //error
     }
@@ -536,11 +1116,11 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
 }
 
 bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
-    if (conversions_to_inter.find(frame->format) == conversions_to_inter.end()
-        || conversions_from_yuv_inter.find(out) == conversions_from_yuv_inter.end()){
-        std::cout << "conversion not supported";
-        return false;
-    }
+//    if (conversions_to_inter.find(frame->format) == conversions_to_inter.end()
+//        || conversions_from_rgb_inter.find(out) == conversions_from_rgb_inter.end()){
+//        std::cout << "conversion not supported\n";
+//        return false;
+//    }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, Y416));
     cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
     cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));

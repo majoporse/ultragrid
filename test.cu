@@ -66,7 +66,7 @@ int main(int argc, char *argv[]){
 
     std::ifstream fin(argv[3], std::ifstream::ate | std::ifstream::binary);
     std::ofstream fout1(std::string{"test_out."} + argv[5], std::ofstream::binary);
-    std::ofstream reference("test_reference.r10k", std::ofstream::binary);
+    std::ofstream reference(std::string{"reference."} + argv[5], std::ofstream::binary);
     assert (width && height && fin && fout1 && reference
             && in_codec != AV_PIX_FMT_NONE && out_codec != VIDEO_CODEC_NONE);
     size_t in_size = vc_get_datalen(width, height, RGBA);
