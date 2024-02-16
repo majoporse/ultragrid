@@ -1,5 +1,4 @@
-#include "myconv.h"
-#include "myconv_inter.h"
+#include "from_lavc.h"
 extern "C" {
 #include <libswscale/swscale.h>
 };
@@ -63,16 +62,14 @@ int main(int argc, char *argv[]){
     int height = atoi(argv[2]);
     AVPixelFormat in_codec = av_get_pix_fmt(argv[4]);
     codec_t out_codec = get_codec_from_file_extension(argv[5]);
+    assert(in_codec != AV_PIX_FMT_NONE && out_codec != VIDEO_CODEC_NONE);
 
-    std::ifstream fin(argv[3], std::ifstream::ate | std::ifstream::binary);
+    std::ifstream fin(argv[3], std::ifstream::binary);
     std::ofstream fout1(std::string{"test_out."} + argv[5], std::ofstream::binary);
     std::ofstream reference(std::string{"reference."} + argv[5], std::ofstream::binary);
-    assert (width && height && fin && fout1 && reference
-            && in_codec != AV_PIX_FMT_NONE && out_codec != VIDEO_CODEC_NONE);
+    assert (width && height && fin && fout1 && reference);
+
     size_t in_size = vc_get_datalen(width, height, RGBA);
-
-    fin.seekg (0, std::ifstream::beg);
-
     std::vector<char> fin_data(in_size);
     fin.read(fin_data.data(), in_size);
 
@@ -85,7 +82,6 @@ int main(int argc, char *argv[]){
 
     //avframe in converted codec
     AVFrame *converted = get_avframe(width, height, in_codec);
-//    std::cout << in_codec;
     convertFrame(frame, converted, in_codec);
 
     // timing
@@ -119,7 +115,6 @@ int main(int argc, char *argv[]){
     for (int i = 0; i < 100; ++i){
         auto t1 = std::chrono::high_resolution_clock::now();
         auto from_conv = get_av_to_uv_conversion(in_codec, out_codec);
-//    std::cout << "1\n" << from_conv.valid << "\n";
         if (!from_conv.valid){
             std::cout << "not a valid conversion for cpu\n";
             break;

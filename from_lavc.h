@@ -1,7 +1,7 @@
-#ifndef MYCONV_INTER
-#define MYCONV_INTER
+#ifndef FROM_LAVC
+#define FROM_LAVC
 
-#include "../../../../usr/include/x86_64-linux-gnu/libavutil/pixfmt.h"
+#include "libavutil/pixfmt.h"
 #include "../src/config_unix.h"
 #include "../src/video_codec.h"
 
