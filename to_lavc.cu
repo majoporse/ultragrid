@@ -1038,11 +1038,11 @@ bool convert_to_lavc(codec_t UG_codec, AVFrame * dst_frame, const char *src) {
 }
 
 bool to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int height, AVFrame **dst){
-//    if (conversions_to_inter.find(frame->format) == conversions_to_inter.end()
-//        || conversions_from_rgb_inter.find(out) == conversions_from_rgb_inter.end()){ //both should contain same keys
-//        std::cout << "conversion not supported\n";
-//        return false;
-//    }
+    if (conversions_from_inter.find(AV_codec) == conversions_from_inter.end()
+        || conversions_to_rgb_inter.find(UG_codec) == conversions_to_rgb_inter.end()){ //both should contain same keys
+        std::cout << "[to_lavc_converter] conversion not supported\n";
+        return false;
+    }
 
     cudaMalloc(&intermediate_to, vc_get_datalen(width, height, Y416));
     cudaMalloc(&gpu_in_buffer, vc_get_datalen(width, height, UG_codec));

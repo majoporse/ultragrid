@@ -57,15 +57,29 @@ int main(int argc, char *argv[]){
                vc_get_linesize(width, UG_codec), 0, 8, 16);
     }
 
-    std::cout << AV_codec << '\n';
-    std::cout.flush();
+    // timing
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
     //convert UG -> AV
     //-------------------------------------------gpu version
     AVFrame *frame1 = nullptr;
     char *dst_cpu1 = nullptr;
+    float count_gpu = 0;
+
     if (to_lavc_init(AV_codec, UG_codec, width, height, &frame1)){
-        convert_to_lavc(UG_codec, frame1, reinterpret_cast<char *>(UG_converted.data()));
+        for (int i = 0; i < 100; ++i){
+            cudaEventRecord(start, 0);
+            convert_to_lavc(UG_codec, frame1, reinterpret_cast<char *>(UG_converted.data()));
+            cudaEventRecord(stop, 0);
+            cudaEventSynchronize(stop);
+            float time;
+            cudaEventElapsedTime(&time, start, stop);
+            count_gpu += time;
+        }
+        count_gpu /= 100.0;
+
         if (from_lavc_init(frame1, RGBA, &dst_cpu1))
             convert_from_lavc(frame1, dst_cpu1, RGBA);
     } else {
@@ -73,10 +87,21 @@ int main(int argc, char *argv[]){
     }
 
     //-------------------------------------------cpu version
-    struct to_lavc_vid_conv *conv_to_av = to_lavc_vid_conv_init(UG_codec, width, height, AV_codec, 1);
+    float count = 0;
     char *dst_cpu2 = nullptr;
+
+    struct to_lavc_vid_conv *conv_to_av = to_lavc_vid_conv_init(UG_codec, width, height, AV_codec, 1);
     if (conv_to_av){
-        AVFrame *frame2 = to_lavc_vid_conv(conv_to_av, (char *) UG_converted.data());
+        AVFrame *frame2 = nullptr;
+        for (int i = 0; i < 100; ++i){
+            auto t1 = std::chrono::high_resolution_clock::now();
+            frame2 = to_lavc_vid_conv(conv_to_av, (char *) UG_converted.data());
+            auto t2 = std::chrono::high_resolution_clock::now();
+            count += (t2-t1).count();
+        }
+        count /= 100.0;
+
+        frame2->format = AV_codec;
         if (from_lavc_init(frame2, RGBA, &dst_cpu2))
             convert_from_lavc(frame2, dst_cpu2, RGBA);
     } else {
@@ -87,5 +112,10 @@ int main(int argc, char *argv[]){
 
     fout1.write(dst_cpu1, vc_get_datalen(width, height, RGBA));
     reference.write(dst_cpu2, vc_get_datalen(width, height, RGBA));
-    std::cout << cudaGetErrorString(cudaGetLastError());
+
+    //print time
+    std::cout << "gpu implementation time: "  << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"
+              << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n";
+    std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
+
 }

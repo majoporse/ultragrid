@@ -1290,7 +1290,7 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
 bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
     if ( frame == nullptr || conversions_to_inter.find(frame->format) == conversions_to_inter.end()
         || conversions_from_rgb_inter.find(out) == conversions_from_rgb_inter.end()){ //both should contain same keys
-        std::cout << "conversion not supported\n";
+        std::cout << "[from_lavc_converter] conversion not supported\n";
         return false;
     }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, Y416));
