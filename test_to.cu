@@ -9,9 +9,12 @@
 #include <chrono>
 #include "from_lavc.h"
 #include <string>
-
+#include <algorithm>
+#include <ranges>
 using std::chrono::milliseconds;
 using namespace std::string_literals;
+
+
 
 int main(int argc, char *argv[]){
     if (argc != 6){
@@ -89,6 +92,7 @@ int main(int argc, char *argv[]){
     //-------------------------------------------cpu version
     float count = 0;
     char *dst_cpu2 = nullptr;
+    int max = 0;
 
     struct to_lavc_vid_conv *conv_to_av = to_lavc_vid_conv_init(UG_codec, width, height, AV_codec, 1);
     if (conv_to_av){
@@ -104,6 +108,9 @@ int main(int argc, char *argv[]){
         frame2->format = AV_codec;
         if (from_lavc_init(frame2, RGBA, &dst_cpu2))
             convert_from_lavc(frame2, dst_cpu2, RGBA);
+            for (int i = 0; i < 10; ++i) { max = std::max(std::abs(dst_cpu1[i] - dst_cpu2[i]), max);}
+            //test validity against ug
+            std::cout << "maximum difference against ultragrid implementation: " << max << "\n";
     } else {
         std::cout << "non-existing cpu implementation\n";
     }
@@ -118,4 +125,7 @@ int main(int argc, char *argv[]){
               << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n";
     std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
 
+    for (int i = 0; i < 10; ++i) { max = std::max(std::abs(dst_cpu1[i] - reinterpret_cast<char *>(fin_data.data())[i]), max);}
+    //test validity against original
+    std::cout << "maximum difference against original picture:" << max << "\n";
 }
