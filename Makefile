@@ -1,4 +1,4 @@
-FLAGS ?= -O2 -g
+FLAGS ?= -g
 SRCDIR ?= ..
 COMMON_FLAGS = $(FLAGS) -D_GNU_SOURCE -I$(SRCDIR)/src/
 MKDIR_P = mkdir -p
@@ -50,3 +50,10 @@ test_to: test_to.o from_lavc.o to_lavc.o src/debug.o src/libavcodec/from_lavc_vi
                                 src/video_frame.o
 	$(CUDA_CXX) $^  -o test_to  -lavutil -lavcodec -lswscale
 
+test_all_to: test_all_to.o from_lavc.o to_lavc.o src/debug.o src/libavcodec/from_lavc_vid_conv.o \
+                                src/libavcodec/lavc_common.o src/libavcodec/to_lavc_vid_conv.o \
+                                src/libavcodec/utils.o src/pixfmt_conv.o src/utils/color_out.o \
+                                src/utils/misc.o src/utils/pam.o src/utils/parallel_conv.o \
+                                src/utils/thread.o src/utils/worker.o src/utils/y4m.o src/video_codec.o \
+                                src/video_frame.o
+	$(CUDA_CXX) $^  -o test_all_to  -lavutil -lavcodec -lswscale

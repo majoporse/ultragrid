@@ -14,6 +14,8 @@ char *gpu_in_buffer;
 AVF_HOST_wrapper host_wrapper;
 AVF_GPU_wrapper gpu_wrapper;
 
+AVFrame *internal_frame = nullptr;
+
 #define BLOCK_SIZE 32
 
 /**************************************************************************************************************/
@@ -1010,34 +1012,35 @@ const std::map<AVPixelFormat, std::tuple<int, void (*)(int, int)>> conversions_f
 /*                                              INTERFACE                                                     */
 /**************************************************************************************************************/
 
-bool convert_to_lavc(codec_t UG_codec, AVFrame * dst_frame, const char *src) {
+AVFrame *convert_to_lavc(codec_t UG_codec, const char *src) {
 
-    auto [inter, converter_from_inter] = conversions_from_inter.at(static_cast<AVPixelFormat>(dst_frame->format));
+    auto [inter, converter_from_inter] = conversions_from_inter.at(static_cast<AVPixelFormat>(internal_frame->format));
 
     //copy the image to gpu
-    cudaMemcpy(gpu_in_buffer, src, vc_get_datalen(dst_frame->width, dst_frame->height, UG_codec), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_in_buffer, src, vc_get_datalen(internal_frame->width, internal_frame->height, UG_codec), cudaMemcpyHostToDevice);
     //copy the destination to gpu
     cudaMemcpyToSymbol(gpu_frame, &(gpu_wrapper.frame), sizeof(AVFrame));
 
     if (inter == YUV_INTER_TO){
         auto converter_to = conversions_to_yuv_inter.at(UG_codec);
-        converter_to(dst_frame->width, dst_frame->height);
+        converter_to(internal_frame->width, internal_frame->height);
     } else if (inter == RGB_INTER_TO){
         auto converter_to = conversions_to_rgb_inter.at(UG_codec);
-        converter_to(dst_frame->width, dst_frame->height);
+        converter_to(internal_frame->width, internal_frame->height);
     } else {
         //error
     }
 
-    converter_from_inter(dst_frame->width, dst_frame->height);
+    converter_from_inter(internal_frame->width, internal_frame->height);
 
     //copy the converted image back to the host
-    gpu_wrapper.copy_to_host(dst_frame);
+    gpu_wrapper.copy_to_host(internal_frame);
+    std::cout << "*"; std::cout.flush();
 //    av_image_fill_arrays()???
-    return true;
+    return internal_frame;
 }
 
-bool to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int height, AVFrame **dst){
+bool to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int height){
     if (conversions_from_inter.find(AV_codec) == conversions_from_inter.end()
         || conversions_to_rgb_inter.find(UG_codec) == conversions_to_rgb_inter.end()){ //both should contain same keys
         std::cout << "[to_lavc_converter] conversion not supported\n";
@@ -1047,20 +1050,22 @@ bool to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int heigh
     cudaMalloc(&intermediate_to, vc_get_datalen(width, height, Y416));
     cudaMalloc(&gpu_in_buffer, vc_get_datalen(width, height, UG_codec));
 
-    *dst = av_frame_alloc();
-    (*dst)->width = width;
-    (*dst)->height = height;
-    (*dst)->format = AV_codec;
-    av_frame_get_buffer(*dst, 0);
+    internal_frame= av_frame_alloc();
+    internal_frame->width = width;
+    internal_frame->height = height;
+    internal_frame->format = AV_codec;
+    av_frame_get_buffer(internal_frame, 0);
 
 //    host_wrapper.alloc(*dst);
-    gpu_wrapper.alloc(*dst);
+    gpu_wrapper.alloc(internal_frame);
 
     return true;
 }
 
-void to_lavc_destroy(char *ptr){
+void to_lavc_destroy(){
     cudaFree(intermediate_to);
     cudaFree(gpu_in_buffer);
     gpu_wrapper.free_from_device();
+    av_frame_free(&internal_frame);
+    std::cout << "internal frame:" << internal_frame << "\n";
 }

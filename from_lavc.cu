@@ -1263,12 +1263,10 @@ const std::map<int, void (*) (const AVFrame *)> conversions_from_rgb_inter = {
 /**************************************************************************************************************/
 
 bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
-
     wrapper.copy_to_device(frame);
 
     //copy host avframe struct to device
     cudaMemcpyToSymbol(gpu_frame, &(wrapper.frame), sizeof(AVFrame));
-
     auto converter_to = conversions_to_inter.at(frame->format);
     auto format = converter_to(frame);
 
@@ -1280,8 +1278,8 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
         converter_from(frame);
     } else {
         //error
+        std::cout << "error";
     }
-
     //copy the converted image back to the host
     cudaMemcpy(dst, gpu_out_buffer, vc_get_datalen(frame->width, frame->height, to), cudaMemcpyDeviceToHost);
     return true;
@@ -1295,16 +1293,18 @@ bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
     }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, Y416));
     cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
-    cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
+//    cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
+    *dst_ptr = (char *) malloc(vc_get_datalen(frame->width, frame->height, out));
 
     wrapper.alloc(frame);
+
     return true;
 }
 
 void from_lavc_destroy(char *ptr){
-    cudaFreeHost(ptr);
-    cudaFree(intermediate);
-    cudaFree(gpu_out_buffer);
+//    free(ptr);
+    if (cudaFree(intermediate) != cudaSuccess) {std::cout << "###########";};
+    if (cudaFree(gpu_out_buffer) != cudaSuccess) {std::cout << "###########";};
 
     wrapper.free_from_device();
 }

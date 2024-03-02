@@ -113,12 +113,12 @@ int main(int argc, char *argv[]){
 
     float count = 0;
     for (int i = 0; i < 100; ++i){
-        auto t1 = std::chrono::high_resolution_clock::now();
         auto from_conv = get_av_to_uv_conversion(in_codec, out_codec);
         if (!from_conv.valid){
             std::cout << "not a valid conversion for cpu\n";
             break;
         }
+        auto t1 = std::chrono::high_resolution_clock::now();
         av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, R10k) , rgb_shift);
         auto t2 = std::chrono::high_resolution_clock::now();
         count += (t2-t1).count();
@@ -132,7 +132,7 @@ int main(int argc, char *argv[]){
 
 
     //print time
-    std::cout << "gpu implementation time: "  << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"
+    std::cout << "gpu implementation time: " << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"
               << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n";
     std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
 

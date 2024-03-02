@@ -13,11 +13,11 @@
 
 typedef void (*conv_t)(char * __restrict dst, const AVFrame* frame);
 
-bool convert_to_lavc(codec_t to, AVFrame *dst, const char* src);
+AVFrame *convert_to_lavc(codec_t to, const char* src);
 
-bool to_lavc_init(AVPixelFormat, codec_t, int, int, AVFrame **);
+bool to_lavc_init(AVPixelFormat, codec_t, int, int);
 
-void to_lavc_destroy(char *);
+void to_lavc_destroy();
 
 
 #endif
