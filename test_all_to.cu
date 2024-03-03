@@ -19,36 +19,36 @@ using std::chrono::milliseconds;
 using namespace std::string_literals;
 
 const std::vector<AVPixelFormat> out_codecs = {
-    AV_PIX_FMT_YUV420P10LE,
-    AV_PIX_FMT_YUV444P10LE,
-    AV_PIX_FMT_YUV422P10LE,
-    AV_PIX_FMT_P010LE,
-    AV_PIX_FMT_NV12,
-    AV_PIX_FMT_YUV420P,
-    AV_PIX_FMT_YUV422P,
-    AV_PIX_FMT_YUV444P,
-    AV_PIX_FMT_YUVJ420P,
-    AV_PIX_FMT_YUVJ422P,
-    AV_PIX_FMT_YUVJ444P,
-    AV_PIX_FMT_YUV420P12LE,
-    AV_PIX_FMT_YUV422P12LE,
-    AV_PIX_FMT_YUV444P12LE,
-    AV_PIX_FMT_YUV420P16LE,
-    AV_PIX_FMT_YUV422P16LE,
-    AV_PIX_FMT_YUV444P16LE,
-    AV_PIX_FMT_AYUV64LE,
-    AV_PIX_FMT_GBRP,
-    AV_PIX_FMT_GBRAP,
-    AV_PIX_FMT_GBRP12LE,
-    AV_PIX_FMT_GBRP10LE,
-    AV_PIX_FMT_GBRP16LE,
-    AV_PIX_FMT_GBRAP12LE,
-    AV_PIX_FMT_GBRAP10LE,
-    AV_PIX_FMT_GBRAP16LE,
-    AV_PIX_FMT_RGB24,
-    AV_PIX_FMT_RGB48LE,
-    AV_PIX_FMT_RGBA64LE,
-    AV_PIX_FMT_RGBA,
+//    AV_PIX_FMT_YUV420P10LE,
+//    AV_PIX_FMT_YUV444P10LE,
+//    AV_PIX_FMT_YUV422P10LE,
+//    AV_PIX_FMT_P010LE,
+//    AV_PIX_FMT_NV12,
+//    AV_PIX_FMT_YUV420P,
+//    AV_PIX_FMT_YUV422P,
+//    AV_PIX_FMT_YUV444P,
+//    AV_PIX_FMT_YUVJ420P,
+//    AV_PIX_FMT_YUVJ422P,
+//    AV_PIX_FMT_YUVJ444P,
+//    AV_PIX_FMT_YUV420P12LE,
+//    AV_PIX_FMT_YUV422P12LE,
+//    AV_PIX_FMT_YUV444P12LE,
+//    AV_PIX_FMT_YUV420P16LE,
+//    AV_PIX_FMT_YUV422P16LE,
+//    AV_PIX_FMT_YUV444P16LE,
+//    AV_PIX_FMT_AYUV64LE,
+//    AV_PIX_FMT_GBRP,
+//    AV_PIX_FMT_GBRAP,
+//    AV_PIX_FMT_GBRP12LE,
+//    AV_PIX_FMT_GBRP10LE,
+//    AV_PIX_FMT_GBRP16LE,
+//    AV_PIX_FMT_GBRAP12LE,
+//    AV_PIX_FMT_GBRAP10LE,
+//    AV_PIX_FMT_GBRAP16LE,
+//    AV_PIX_FMT_RGB24,
+//    AV_PIX_FMT_RGB48LE,
+//    AV_PIX_FMT_RGBA64LE,
+//    AV_PIX_FMT_RGBA,
     AV_PIX_FMT_Y210,
 };
 
@@ -80,10 +80,19 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
     float count_gpu = 0;
 
     if (to_lavc_init(AV_format, UG_format, width, height)){
-        frame1 = convert_to_lavc(UG_format, reinterpret_cast<char *>(UG_converted.data()));
+        for (int i = 0; i < 100; ++i){
+            cudaEventRecord(start, 0);
+            frame1 = convert_to_lavc(UG_format, reinterpret_cast<char *>(UG_converted.data()));
+            cudaEventRecord(stop, 0);
+            cudaEventSynchronize(stop);
+            float time;
+            cudaEventElapsedTime(&time, start, stop);
+            count_gpu += time;
+        }
+        count_gpu /= 100.0;
 
         if (from_lavc_init(frame1, UG_format, &dst_cpu1)){
-            convert_from_lavc(frame1, dst_cpu1, UG_format); //have to destoy because of another usage
+            convert_from_lavc(frame1, dst_cpu1, UG_format);
             from_lavc_destroy(dst_cpu1);
         }
     }
@@ -94,7 +103,7 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
     int max = 0;
 
     struct to_lavc_vid_conv *conv_to_av = to_lavc_vid_conv_init(UG_format, width, height, AV_format, 1);
-    if (conv_to_av){
+    if (conv_to_av && !(AV_format == AV_PIX_FMT_Y210 && (UG_format == RG48 || UG_format == Y216))){ //UG crashes here for some reason
         AVFrame *frame2 = nullptr;
         for (int i = 0; i < 100; ++i){
             auto t1 = std::chrono::high_resolution_clock::now();
@@ -125,10 +134,10 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
         logs << "non-existing cpu implementation\n";
     }
 
-    //print time
+//    print time
     logs << "gpu implementation time: "  << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"
          << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1'000'000.0<< "ms"
-         << (count_gpu > count / 1'000'000.0 && count != 0 ? " <-- !!!\n" : "\n");
+         << (count_gpu > count / 1'000'000.0 && count != 0 ? " <------ !!!\n" : "\n");
     logs << cudaGetErrorString(cudaGetLastError()) << "\n";
 
 
@@ -139,7 +148,7 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
     for (int i = 0; i < vc_get_datalen(width, height, UG_format); ++i) {
         max2 = std::max(std::abs(final1[i] - UG_converted.data()[i]), max2);
     }
-    logs << "maximum difference against original picture:" << max << (max > 1 ? " <-- !!!\n" : "\n");
+    logs << "maximum difference against original picture:" << max << (max > 1 ? " <---------- !!!\n" : "\n");
     logs.flush();
 
     to_lavc_destroy();
@@ -190,9 +199,9 @@ int main(int argc, char *argv[]){
             fout1 << get_codec_name(in_codec) << " --> "
                       << av_get_pix_fmt_name(out_codec) << "\n";
             benchmark(width, height, in_codec, out_codec,rg48vec.data(), fout1);
+            std::cout << cudaGetErrorString(cudaGetLastError()) << "\n"
+                      << "---------------------------------------------\n";
+            fout1 << "---------------------------------------------\n";
         }
     }
-
-
-
 }

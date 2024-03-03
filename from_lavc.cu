@@ -1303,8 +1303,8 @@ bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
 
 void from_lavc_destroy(char *ptr){
 //    free(ptr);
-    if (cudaFree(intermediate) != cudaSuccess) {std::cout << "###########";};
-    if (cudaFree(gpu_out_buffer) != cudaSuccess) {std::cout << "###########";};
+    cudaFree(intermediate);
+    cudaFree(gpu_out_buffer);
 
     wrapper.free_from_device();
 }
