@@ -119,7 +119,7 @@ int main(int argc, char *argv[]){
             break;
         }
         auto t1 = std::chrono::high_resolution_clock::now();
-        av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, R10k) , rgb_shift);
+        av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, out_codec) , rgb_shift);
         auto t2 = std::chrono::high_resolution_clock::now();
         count += (t2-t1).count();
     }
@@ -145,4 +145,3 @@ int main(int argc, char *argv[]){
     av_frame_free(&converted);
     av_frame_free(&frame);
 }
-

@@ -98,41 +98,41 @@ int main(int argc, char *argv[]){
     int max = 0;
     struct to_lavc_vid_conv *conv_to_av = to_lavc_vid_conv_init(UG_codec, width, height, AV_codec, 1);
 
-//    if (conv_to_av){
-//        AVFrame *frame2 = nullptr;
-//        for (int i = 0; i < 100; ++i){
-//            auto t1 = std::chrono::high_resolution_clock::now();
-//            frame2 = to_lavc_vid_conv(conv_to_av, reinterpret_cast<char *>(UG_converted.data())); //rg48->y210 segfault!!!
-//            auto t2 = std::chrono::high_resolution_clock::now();
-//            count += (t2-t1).count();
-//        }
-//        count /= 100.0;
-//
-//        frame2->format = AV_codec; //these are not set inside the UG call
-//        frame2->width = width;
-//        frame2->height = height;
-//        if (from_lavc_init(frame2, RGB, &dst_cpu2)){
-//
-//            convert_from_lavc(frame2, dst_cpu2, RGB);
-//
-//            uint8_t *f1, *f2;
-//            f1 = (uint8_t *)dst_cpu1;
-//            f2 = (uint8_t *)dst_cpu2;
-//            for(int i = 0; i < vc_get_datalen(width, height, RGB); ++i) {
-//                max = std::max(std::abs( f1[i] - f2[i]), max);
-//            }
-//            //test validity against ug
-//            std::cout << "maximum difference against ultragrid implementation: " << max << "\n";
-//            from_lavc_destroy(dst_cpu2);
-//        }
-//    } else {
-//        std::cout << "non-existing cpu implementation\n";
-//    }
+    if (conv_to_av){
+        AVFrame *frame2 = nullptr;
+        for (int i = 0; i < 100; ++i){
+            auto t1 = std::chrono::high_resolution_clock::now();
+            frame2 = to_lavc_vid_conv(conv_to_av, reinterpret_cast<char *>(UG_converted.data())); //rg48->y210 segfault!!!
+            auto t2 = std::chrono::high_resolution_clock::now();
+            count += (t2-t1).count();
+        }
+        count /= 100.0;
+
+        frame2->format = AV_codec; //these are not set inside the UG call
+        frame2->width = width;
+        frame2->height = height;
+        if (from_lavc_init(frame2, RGB, &dst_cpu2)){
+
+            convert_from_lavc(frame2, dst_cpu2, RGB);
+
+            uint8_t *f1, *f2;
+            f1 = (uint8_t *)dst_cpu1;
+            f2 = (uint8_t *)dst_cpu2;
+            for(int i = 0; i < vc_get_datalen(width, height, RGB); ++i) {
+                max = std::max(std::abs( f1[i] - f2[i]), max);
+            }
+            //test validity against ug
+            std::cout << "maximum difference against ultragrid implementation: " << max << "\n";
+            from_lavc_destroy(dst_cpu2);
+        }
+    } else {
+        std::cout << "non-existing cpu implementation\n";
+    }
 
     //--------------------------------
 
-    fout1.write(dst_cpu1, vc_get_datalen(width, height, UG_codec));
-    reference.write(dst_cpu2, vc_get_datalen(width, height, UG_codec));
+    fout1.write(dst_cpu1, vc_get_datalen(width, height, RGB));
+    reference.write(dst_cpu2, vc_get_datalen(width, height, RGB));
 
     //print time
     std::cout << "gpu implementation time: " << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"

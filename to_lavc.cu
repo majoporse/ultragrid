@@ -178,8 +178,8 @@ __global__ void convert_vuya_from_inter(int width, int height, int pitch_in, cha
         *dst = 0xFFFF;
 }
 
-template<typename OUT_T, int subsampling, int bit_shift>
-__global__ void convert_yuvp_from_inter(int width, int height, int pitch_in, char *in){
+template<typename OUT_T,int bit_shift>
+__global__ void convert_yuv422p_from_inter(int width, int height, int pitch_in, char *in){
     // yuv 444 i -> yuvp
     AVFrame *out_frame = &gpu_frame;
     size_t x = blockDim.x * blockIdx.x + threadIdx.x;
@@ -206,36 +206,24 @@ __global__ void convert_yuvp_from_inter(int width, int height, int pitch_in, cha
     OUT_T *cb_loop[2];
     OUT_T *cr_loop[2];
 
-    if constexpr (subsampling == 420){
-        //fills the same cr/cb to each line
-        void * dst_cb_row = out_frame->data[1] + out_frame->linesize[1] *  y;
-        void * dst_cr_row = out_frame->data[2] + out_frame->linesize[2] *  y;
+    //fills different cr/cb for each line
+    void * dst_cb1_row = out_frame->data[1] + out_frame->linesize[1] *  2 * y;
+    void * dst_cb2_row = out_frame->data[1] + out_frame->linesize[1] *  (2 * y + 1);
 
-        dst_cb1 = ((OUT_T *) (dst_cb_row)) + x;
-        dst_cr1 = ((OUT_T *) (dst_cr_row)) + x;
-        cb_loop[0] = cb_loop[1] = dst_cb1;
-        cr_loop[0] = cr_loop[1] = dst_cr1;
+    void * dst_cr1_row = out_frame->data[2] + out_frame->linesize[2] *  2 * y;
+    void * dst_cr2_row = out_frame->data[2] + out_frame->linesize[2] *  (2 * y + 1);
 
-    } else if constexpr (subsampling == 422){
-        //fills different cr/cb for each line
-        void * dst_cb1_row = out_frame->data[1] + out_frame->linesize[1] *  2 * y;
-        void * dst_cb2_row = out_frame->data[1] + out_frame->linesize[1] *  (2 * y + 1);
+    dst_cb1 = ((OUT_T *) (dst_cb1_row)) + x;
+    dst_cb2 = ((OUT_T *) (dst_cb2_row)) + x;
 
-        void * dst_cr1_row = out_frame->data[2] + out_frame->linesize[2] *  2 * y;
-        void * dst_cr2_row = out_frame->data[2] + out_frame->linesize[2] *  (2 * y + 1);
+    dst_cr1 = ((OUT_T *) (dst_cr1_row)) + x;
+    dst_cr2 = ((OUT_T *) (dst_cr2_row)) + x;
 
-        dst_cb1 = ((OUT_T *) (dst_cb1_row)) + x;
-        dst_cb2 = ((OUT_T *) (dst_cb2_row)) + x;
+    cb_loop[0] = dst_cb1;
+    cb_loop[1] = dst_cb2;
 
-        dst_cr1 = ((OUT_T *) (dst_cr2_row)) + x;
-        dst_cr2 = ((OUT_T *) (dst_cr1_row)) + x;
-
-        cb_loop[0] = dst_cb1;
-        cb_loop[1] = dst_cb2;
-
-        cr_loop[0] = dst_cr1;
-        cr_loop[1] = dst_cr2;
-    }
+    cr_loop[0] = dst_cr1;
+    cr_loop[1] = dst_cr2;
 
     OUT_T *y_loop[2] = {dst_y1, dst_y2};
     uint16_t *src_loop[2] = {src1, src2};
@@ -247,11 +235,51 @@ __global__ void convert_yuvp_from_inter(int width, int height, int pitch_in, cha
         OUT_T *dst_cb = cb_loop[i];
         OUT_T *dst_cr = cr_loop[i];
 
-        *dst_cb = ((src[0] + src[4]) / 2) >> bit_shift; // U
+        *dst_cb = ((src[0] / 2 + src[4] / 2) ) >> bit_shift; // U
         *dst_y++ = src[1] >> bit_shift; // Y
-        *dst_cr = ((src[2] + src[6]) / 2) >> bit_shift; // V
+        *dst_cr = ((src[2] / 2 + src[6] / 2)) >> bit_shift; // V
         *dst_y = src[5] >> bit_shift; // Y
     }
+}
+
+template<typename OUT_T, int bit_shift>
+__global__ void convert_yuv420p_from_inter(int width, int height, int pitch_in, char *in){
+    // yuv 444 i -> yuvp
+    AVFrame *out_frame = &gpu_frame;
+    size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width /2 || y >= height/2)
+        return;
+
+    OUT_T * dst_cb1, *dst_cb2, *dst_cr1, *dst_cr2, *dst_y1, *dst_y2;
+
+    //y1, y2
+    void * dst_y1_row = out_frame->data[0] + out_frame->linesize[0] * 2 * y;
+    void * dst_y2_row = out_frame->data[0] + out_frame->linesize[0] * (2 * y + 1);
+    dst_y1 = ((OUT_T *) (dst_y1_row)) + 2 * x;
+    dst_y2 = ((OUT_T *) (dst_y2_row)) + 2 * x;
+
+    //dst
+    void * src1_row = in +  2 * y      * pitch_in;
+    void * src2_row = in + (2 * y + 1) * pitch_in;
+    uint16_t *src1 = ((uint16_t *) src1_row) + 4 * 2 * x;
+    uint16_t *src2 = ((uint16_t *) src2_row) + 4 * 2 * x;
+
+    void * dst_cb_row = out_frame->data[1] + out_frame->linesize[1] *  y;
+    void * dst_cr_row = out_frame->data[2] + out_frame->linesize[2] *  y;
+
+    dst_cb1 = ((OUT_T *) (dst_cb_row)) + x;
+    dst_cr1 = ((OUT_T *) (dst_cr_row)) + x;
+
+    *dst_y1++ = src1[1] >> bit_shift; // Y
+    *dst_y1 = src1[5] >> bit_shift; // Y
+
+    *dst_y2++ = src2[1] >> bit_shift; // Y
+    *dst_y2 = src2[5] >> bit_shift; // Y
+
+    *dst_cb1 = ((src1[0] / 4 + src2[0] / 4 + src1[4] / 4 + src2[4] / 4) ) >> bit_shift; // U
+    *dst_cr1 = ((src1[2] / 4 + src2[2]  /4 + src1[6] / 4 + src2[6] / 4) ) >> bit_shift; // V
 }
 
 template<typename IN_T, int bit_shift>
@@ -269,18 +297,18 @@ __global__ void convert_yuv444p_from_inter(int width, int height, int pitch_in, 
     void *dst_cr_row = out_frame->data[2] + out_frame->linesize[2] *  y;
     void *src_row = in + y * pitch_in;
 
-    IN_T   *src_y1 = ((IN_T *) dst_y1_row) + x;
-    IN_T   *src_cb = ((IN_T *) dst_cb_row) + x;
-    IN_T   *src_cr = ((IN_T *) dst_cr_row) + x;
-    uint16_t *dst = ((uint16_t *) src_row) + 4 * x;
+    IN_T   *dst_y1 = ((IN_T *) dst_y1_row) + x;
+    IN_T   *dst_cb = ((IN_T *) dst_cb_row) + x;
+    IN_T   *dst_cr = ((IN_T *) dst_cr_row) + x;
+    uint16_t *src = ((uint16_t *) src_row) + 4 * x;
 
-    *src_cb = *dst++ >> bit_shift; // U
-    *src_y1 = *dst++ >> bit_shift; // Y
-    *src_cr = *dst >> bit_shift; // V
+    *dst_cb = *src++ >> bit_shift; // U
+    *dst_y1 = *src++ >> bit_shift; // Y
+    *dst_cr = *src >> bit_shift; // V
 }
 
 
-template<typename IN_T, int bit_shift>
+template<typename OUT_T, int bit_shift>
 __global__ void convert_p010le_from_inter(int width, int height, int pitch_in, char * in)
 {
     // y cbcr -> yuv 444 i
@@ -288,19 +316,18 @@ __global__ void convert_p010le_from_inter(int width, int height, int pitch_in, c
     size_t x = blockDim.x * blockIdx.x + threadIdx.x;
     size_t y = blockDim.y * blockIdx.y + threadIdx.y;
 
-    if (x >= width /2 || y >= height/2)
+    if (x >= width / 2 || y >= height / 2)
         return;
-
-    IN_T * dst_cbcr, *dst_y1, *dst_y2;
+    OUT_T * dst_cbcr, *dst_y1, *dst_y2;
 
     //y1, y2
     void * dst_y1_row = out_frame->data[0] + out_frame->linesize[0] * 2 * y;
     void * dst_y2_row = out_frame->data[0] + out_frame->linesize[0] * (2 * y + 1);
-    dst_y1 = ((IN_T *) (dst_y1_row)) + 2 * x;
-    dst_y2 = ((IN_T *) (dst_y2_row)) + 2 * x;
+    dst_y1 = ((OUT_T *) (dst_y1_row)) + 2 * x;
+    dst_y2 = ((OUT_T *) (dst_y2_row)) + 2 * x;
 
     void *dst_cbcr_row = out_frame->data[1] + out_frame->linesize[1] * y;
-    dst_cbcr = ((IN_T *) dst_cbcr_row) + 2 * x;
+    dst_cbcr = ((OUT_T *) dst_cbcr_row) + 2 * x;
 
     //src
     void *src1_row = in + (y * 2) * pitch_in;
@@ -357,20 +384,13 @@ __global__ void convert_y210_from_inter(int width, int height, int pitch_in, cha
     void *dst_row = out_frame->data[0] + out_frame->linesize[0] *  y;
     void *src_row = in + y * pitch_in;
 
-    char *dst = ((char *) dst_row) + 4 * x;
+    uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
     uint16_t *src = ((uint16_t *) src_row) + 4 * 2 * x;
 
-    uint16_t y0, u, y1, v;
-    //uyva
-    y0 = src[1];
-    u = (src[0] + src[4]) / 2;
-    y1 = src[5];
-    v = (src[2] + src[6]) / 2;
-
-    *dst++ = y0 >> 8;
-    *dst++ = u >> 8;
-    *dst++ = y1 >> 8;
-    *dst = v >> 8;
+    *dst++ = src[1]; //y
+    *dst++ = (src[0] + src[4]) / 2; //u
+    *dst++ = src[5]; //y22
+    *dst = (src[2] + src[6]) / 2; //v
 }
 
 __global__ void convert_p210_from_inter(int width, int height, int pitch_in, char * in){
@@ -466,7 +486,7 @@ __global__ void convert_rgb_to_rgb_inter(int width, int height, int pitch_in, in
     IN_T *src = ((IN_T *) src_row) + (has_alpha ? 4 : 3) * x;
     uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
 
-    comp_type_t r, g, b, y1, u, v;
+    uint16_t r, g, b;
     if constexpr (CODEC == R10k){
         uint8_t byte1 = *src++;
         uint8_t byte2 = *src++;
@@ -851,17 +871,26 @@ void rgb_from_inter(int width, int height){
     convert_rgb_from_inter<T, bit_shift, alpha><<<grid, block>>>(width, height, pitch_in, intermediate_to);
 }
 
-template<typename T, int bit_shift, int subsampling>
-void yuvp_from_inter(int width, int height){
+template<typename T, int bit_shift>
+void yuv422p_from_inter(int width, int height){
     size_t pitch_in = vc_get_linesize(width, Y416);
-
-    assert(subsampling == 422 || subsampling == 420);
 
     //execute the conversion
     dim3 grid = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE );;
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    convert_yuvp_from_inter<T, subsampling, bit_shift><<<grid, block>>>(width, height, pitch_in, intermediate_to);
+    convert_yuv422p_from_inter<T, bit_shift><<<grid, block>>>(width, height, pitch_in, intermediate_to);
+}
+
+template<typename T, int bit_shift>
+void yuv420p_from_inter(int width, int height){
+    size_t pitch_in = vc_get_linesize(width, Y416);
+
+    //execute the conversion
+    dim3 grid = dim3((width / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE );;
+    dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
+
+    convert_yuv420p_from_inter<T, bit_shift><<<grid, block>>>(width, height, pitch_in, intermediate_to);
 }
 
 template<typename T, int bit_shift>
@@ -948,28 +977,28 @@ std::map<codec_t, void (*)(int, int)> conversions_to_yuv_inter = {
 
 const std::map<AVPixelFormat, std::tuple<int, void (*)(int, int)>> conversions_from_inter = {
         // 10-bit YUV
-        {AV_PIX_FMT_YUV420P10LE, {YUV_INTER_TO, yuvp_from_inter<uint16_t, 6, 420>}},
+        {AV_PIX_FMT_YUV420P10LE, {YUV_INTER_TO, yuv420p_from_inter<uint16_t, 6>}},
         {AV_PIX_FMT_YUV444P10LE, {YUV_INTER_TO, yuv444p_from_inter<uint16_t, 6>}},
-        {AV_PIX_FMT_YUV422P10LE, {YUV_INTER_TO, yuvp_from_inter<uint16_t, 6, 422>}},
+        {AV_PIX_FMT_YUV422P10LE, {YUV_INTER_TO, yuv422p_from_inter<uint16_t, 6>}},
         {AV_PIX_FMT_P010LE, {YUV_INTER_TO, p010le_from_inter<uint16_t, 0>}},
 
         // 8-bit YUV (NV12)
         {AV_PIX_FMT_NV12, {YUV_INTER_TO, p010le_from_inter<char, 8>}},
 
-        {AV_PIX_FMT_YUV420P, {YUV_INTER_TO, yuvp_from_inter<char, 8, 420>}},
-        {AV_PIX_FMT_YUV422P, {YUV_INTER_TO, yuvp_from_inter<char, 8, 422>}},
+        {AV_PIX_FMT_YUV420P, {YUV_INTER_TO, yuv420p_from_inter<char, 8>}},
+        {AV_PIX_FMT_YUV422P, {YUV_INTER_TO, yuv422p_from_inter<char, 8>}},
         {AV_PIX_FMT_YUV444P, {YUV_INTER_TO, yuv444p_from_inter<char, 8>}},
 
-        {AV_PIX_FMT_YUVJ420P, {YUV_INTER_TO, yuvp_from_inter<char, 8, 420>}},
-        {AV_PIX_FMT_YUVJ422P, {YUV_INTER_TO, yuvp_from_inter<char, 8, 422>}},
+        {AV_PIX_FMT_YUVJ420P, {YUV_INTER_TO, yuv420p_from_inter<char, 8>}},
+        {AV_PIX_FMT_YUVJ422P, {YUV_INTER_TO, yuv422p_from_inter<char, 8>}},
         {AV_PIX_FMT_YUVJ444P, {YUV_INTER_TO, yuv444p_from_inter<char, 8>}},
         // 12-bit YUV
-        {AV_PIX_FMT_YUV420P12LE, {YUV_INTER_TO, yuvp_from_inter<uint16_t, 4, 420>}},
-        {AV_PIX_FMT_YUV422P12LE, {YUV_INTER_TO, yuvp_from_inter<uint16_t, 4, 422>}},
+        {AV_PIX_FMT_YUV420P12LE, {YUV_INTER_TO, yuv420p_from_inter<uint16_t, 4>}},
+        {AV_PIX_FMT_YUV422P12LE, {YUV_INTER_TO, yuv422p_from_inter<uint16_t, 4>}},
         {AV_PIX_FMT_YUV444P12LE, {YUV_INTER_TO, yuv444p_from_inter<uint16_t, 4>}},
         // 16-bit YUV
-        {AV_PIX_FMT_YUV420P16LE, {YUV_INTER_TO, yuvp_from_inter<uint16_t , 0, 420>}},
-        {AV_PIX_FMT_YUV422P16LE, {YUV_INTER_TO, yuvp_from_inter<uint16_t , 0, 422>}},
+        {AV_PIX_FMT_YUV420P16LE, {YUV_INTER_TO, yuv420p_from_inter<uint16_t , 0>}},
+        {AV_PIX_FMT_YUV422P16LE, {YUV_INTER_TO, yuv422p_from_inter<uint16_t , 0>}},
         {AV_PIX_FMT_YUV444P16LE, {YUV_INTER_TO, yuv444p_from_inter<uint16_t , 0>}},
 
         {AV_PIX_FMT_AYUV64LE, {YUV_INTER_TO, ayuv64_from_inter}},
