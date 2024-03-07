@@ -25,9 +25,9 @@ AVF_GPU_wrapper wrapper;
 template<typename SRC, typename DEST>
 __device__ void R10k_from_rgb(const SRC *src, DEST *dst1, int shift){
     uint32_t *dst = (uint32_t *) dst1;
-    uint16_t r = *src++ >> shift;
-    uint16_t g = *src++ >> shift;
-    uint16_t b = *src++ >> shift;
+    comp_type_t r = *src++ >> shift;
+    comp_type_t g = *src++ >> shift;
+    comp_type_t b = *src++ >> shift;
     // B5-B0 XX | G3-G0 B9-B6 | R1-R0 G9-G4 | R9-R2
     *dst = (b & 0x3FU) << 26U | 0x3000000U | (g & 0xFU) << 20U | (b >> 6U) << 16U | (r & 0x3U) << 14U | (g >> 4U) << 8U | r >> 2U;
 }
@@ -145,7 +145,6 @@ template <typename IN_T, codec_t codec, int BIT_DEPTH>
 __global__ void write_from_yuv_to_rgb(char * __restrict dst_buf, const char *__restrict src,
                                       int pitch, size_t pitch_in, int width, int height){
 
-    // yuv 4:4:4 interleaved -> R10k
     size_t x = blockDim.x * blockIdx.x + threadIdx.x;
     size_t y = blockDim.y * blockIdx.y + threadIdx.y;
 
@@ -153,7 +152,6 @@ __global__ void write_from_yuv_to_rgb(char * __restrict dst_buf, const char *__r
         return;
 
     void *dst_row = dst_buf + pitch * y;
-
 
     const uint16_t *in = (uint16_t *) (src + y * pitch_in + 4 * 2 * x) ;
     comp_type_t y1, u, v, r, g, b, a;
@@ -165,11 +163,12 @@ __global__ void write_from_yuv_to_rgb(char * __restrict dst_buf, const char *__r
     r = (YCBCR_TO_R_709_SCALED(y1, u, v) >> (COMP_BASE + 16-BIT_DEPTH));
     g = (YCBCR_TO_G_709_SCALED(y1, u, v) >> (COMP_BASE + 16-BIT_DEPTH));
     b = (YCBCR_TO_B_709_SCALED(y1, u, v) >> (COMP_BASE + 16-BIT_DEPTH));
+
     r = CLAMP_FULL(r, BIT_DEPTH);
     g = CLAMP_FULL(g, BIT_DEPTH);
     b = CLAMP_FULL(b, BIT_DEPTH);
 
-    a = 0xFFFFU; //default alpha
+    a = 0xFFU; //default alpha
     comp_type_t rgb[] = {r, g, b, a};
 
     if constexpr (codec == R10k){
@@ -225,13 +224,13 @@ __global__ void write_from_yuv_to_uyvy(char * __restrict dst_buf, const char *__
         return;
 
     const void *src_row = src_buf + pitch_in * y;
-    const char *src = ((const char *) src_row) + 4 * 2 * 2 * x;
+    const uint8_t *src = ((const uint8_t *) src_row) + 4 * 2 * 2 * x;
 
     void * dst_row = dst_buf + pitch * y;
     char *dst = ((char *) dst_row) + 4 * x;
 
     auto GET_VALS = [src](auto &u, auto &y0, auto &v, auto &y1){
-        u = (src[1] + src[9]) / 2; // U
+        u = (src[1] + src[9]) / 2; // Uuint8_t
         y0 = src[3]; // Y0
         v = (src[5] + src[13]) / 2; // V
         y1 = src[11]; // Y1
@@ -671,6 +670,7 @@ __global__ void yuv422p_to_intermediate(char * __restrict dst_buffer, int pitch,
         *dst2++ = 0xFFFFU; // A
     }
 }
+
 template<typename IN_T, int bit_shift>
 __global__ void yuv420p_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height){
     // yuvp -> yuv 444 i
@@ -731,10 +731,10 @@ __global__ void yuv444p_to_intermediate(char * __restrict dst_buffer, int pitch,
     void *src_cr_row = in_frame->data[2] + in_frame->linesize[2] *  y;
     void *dst_row = dst_buffer + y * pitch;
 
-    IN_T * __restrict src_y1 = ((IN_T *) src_y1_row) + x;
-    IN_T * __restrict src_cb = ((IN_T *) src_cb_row) + x;
-    IN_T * __restrict src_cr = ((IN_T *) src_cr_row) + x;
-    uint16_t *          dst1 = ((uint16_t *) dst_row) + 4 * x;
+    IN_T *   src_y1 = ((IN_T *) src_y1_row) + x;
+    IN_T *   src_cb = ((IN_T *) src_cb_row) + x;
+    IN_T *   src_cr = ((IN_T *) src_cr_row) + x;
+    uint16_t * dst1 = ((uint16_t *) dst_row) + 4 * x;
 
     *dst1++ = *src_cb << bit_shift; // U
     *dst1++ = *src_y1 << bit_shift; // Y
@@ -751,6 +751,7 @@ __global__ void gbrap_to_intermediate(char * __restrict dst_buffer, int pitch, i
 
     if (x >= width || y >= height)
         return;
+
     void *src_g_row = in_frame->data[0] + in_frame->linesize[0] *  y;
     void *src_b_row = in_frame->data[1] + in_frame->linesize[1] *  y;
     void *src_r_row = in_frame->data[2] + in_frame->linesize[2] *  y;
@@ -768,7 +769,7 @@ __global__ void gbrap_to_intermediate(char * __restrict dst_buffer, int pitch, i
     if constexpr (has_alpha){
         void * src_a_row = in_frame->data[3] + in_frame->linesize[3] * y;
         IN_T *src_a =((IN_T *) src_a_row) + x;
-        *dst = *src_a;
+        *dst = *src_a << bit_shift;
     } else{
         *dst = 0xFFFFU;
     }
@@ -1230,15 +1231,15 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         {AV_PIX_FMT_P010LE, convert_p010le_to_inter<uint16_t, 0>},
 
         // 8-bit YUV (NV12)
-        {AV_PIX_FMT_NV12, convert_p010le_to_inter<char, 8>},
+        {AV_PIX_FMT_NV12, convert_p010le_to_inter<uint8_t, 8>},
 
-        {AV_PIX_FMT_YUV420P, convert_yuv420p_to_inter<char, 8>},
-        {AV_PIX_FMT_YUV422P, convert_yuv422p_to_inter<char, 8>},
-        {AV_PIX_FMT_YUV444P, convert_yuv444p_to_inter<char, 8>},
+        {AV_PIX_FMT_YUV420P, convert_yuv420p_to_inter<uint8_t, 8>},
+        {AV_PIX_FMT_YUV422P, convert_yuv422p_to_inter<uint8_t, 8>},
+        {AV_PIX_FMT_YUV444P, convert_yuv444p_to_inter<uint8_t, 8>},
 
-        {AV_PIX_FMT_YUVJ420P, convert_yuv420p_to_inter<char, 8>},
-        {AV_PIX_FMT_YUVJ422P, convert_yuv422p_to_inter<char, 8>},
-        {AV_PIX_FMT_YUVJ444P, convert_yuv444p_to_inter<char, 8>},
+        {AV_PIX_FMT_YUVJ420P, convert_yuv420p_to_inter<uint8_t, 8>},
+        {AV_PIX_FMT_YUVJ422P, convert_yuv422p_to_inter<uint8_t, 8>},
+        {AV_PIX_FMT_YUVJ444P, convert_yuv444p_to_inter<uint8_t, 8>},
         // 12-bit YUV
         {AV_PIX_FMT_YUV420P12LE, convert_yuv420p_to_inter<uint16_t, 4>},
         {AV_PIX_FMT_YUV422P12LE, convert_yuv422p_to_inter<uint16_t, 4>},
@@ -1251,8 +1252,8 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         {AV_PIX_FMT_AYUV64, convert_ayuv64_to_y416},
 
         //GBR
-        {AV_PIX_FMT_GBRP, convert_grb_to_inter<char, 8, false>},
-        {AV_PIX_FMT_GBRAP, convert_grb_to_inter<char, 8, true>},
+        {AV_PIX_FMT_GBRP, convert_grb_to_inter<uint8_t, 8, false>},
+        {AV_PIX_FMT_GBRAP, convert_grb_to_inter<uint8_t, 8, true>},
 
         {AV_PIX_FMT_GBRP10LE, convert_grb_to_inter<uint16_t, 6, false>},
         {AV_PIX_FMT_GBRP12LE, convert_grb_to_inter<uint16_t, 4, false>},
@@ -1263,11 +1264,11 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         {AV_PIX_FMT_GBRAP16LE, convert_grb_to_inter<uint16_t, 0, true>},
 
         //RGB
-        {AV_PIX_FMT_RGB24, convert_rgb_to_inter<char, 8, false>},
+        {AV_PIX_FMT_RGB24, convert_rgb_to_inter<uint8_t, 8, false>},
         {AV_PIX_FMT_RGB48LE, convert_rgb_to_inter<uint16_t, 0, false>},
 
         {AV_PIX_FMT_RGBA64LE, convert_rgb_to_inter<uint16_t, 0, true>},
-        {AV_PIX_FMT_RGBA, convert_rgb_to_inter<char, 8, true>},
+        {AV_PIX_FMT_RGBA, convert_rgb_to_inter<uint8_t, 8, true>},
 
         {AV_PIX_FMT_Y210, convert_y210_to_inter}, //idk how to test these
 #if P210_PRESENT

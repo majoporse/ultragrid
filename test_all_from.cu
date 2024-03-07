@@ -78,7 +78,7 @@ const std::vector<std::tuple<AVPixelFormat, codec_t>> in_codecs = {
         {AV_PIX_FMT_YUV444P16LE, UYVY},
         {AV_PIX_FMT_YUV444P16LE, v210}, //ug bad
         {AV_PIX_FMT_YUV444P16LE, Y416},
-//        {AV_PIX_FMT_AYUV64, UYVY}, //somehow crashed
+        {AV_PIX_FMT_AYUV64LE, UYVY}, //somehow crashed
         {AV_PIX_FMT_AYUV64, v210}, //ug bad
         {AV_PIX_FMT_AYUV64, Y416},
         // RGB
@@ -148,14 +148,14 @@ AVFrame * get_avframe(int width, int height, AVPixelFormat p){
     return frame;
 }
 
-void check(char *p1, char *p2, int width, int height, codec_t format, std::ofstream &logs){
-    char * p3 = nullptr;
-    char * p4 = nullptr;
+void check(uint8_t *p1, uint8_t *p2, int width, int height, codec_t format, std::ofstream &logs){
+    uint8_t * p3 = nullptr;
+    uint8_t * p4 = nullptr;
     //convert
     if (convs.contains(format)){
         auto *decode = get_decoder_from_to(format, RG48);
-        p3 = (char *) malloc(vc_get_datalen(width, height, RG48));
-        p4 = (char *) malloc(vc_get_datalen(width, height, RG48));
+        p3 = (uint8_t *) malloc(vc_get_datalen(width, height, RG48));
+        p4 = (uint8_t *) malloc(vc_get_datalen(width, height, RG48));
 
         for (int y = 0; y < height; ++y) {
             decode(reinterpret_cast<unsigned char *>(&p3[y * vc_get_linesize(width, RG48)]),
@@ -174,14 +174,13 @@ void check(char *p1, char *p2, int width, int height, codec_t format, std::ofstr
     if (format == RG48 || format == Y216 || format == Y416){
         auto d1 = (uint16_t *) p1;
         auto d2 = (uint16_t *) p2;
-        std::cout << (void *)p1 << " "<< (void *) p3;
-        std::cout<< vc_get_datalen(width, height, format);
         for (int i = 0; i < vc_get_datalen(width, height, format) / 2; ++i) {
-            max = std::max(std::abs(d1[i] - d2[i]), max);
+            max = std::max(std::abs((int) d1[i] - (int) d2[i]), max);
+            if (max > 60) {std::cout << " " << i << " "; break;}
         }
     } else{
         for (int i = 0; i < vc_get_datalen(width, height, format); ++i){
-            max = std::max(std::abs( p1[i] - p2[i]), max);
+            max = std::max(std::abs( (int) p1[i] - (int) p2[i]), max);
         }
     }
 
@@ -246,7 +245,7 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
 
     logs << av_get_pix_fmt_name(AV_format) << " --> "
          << get_codec_name(UG_format) << "\n";
-    check(dst_cpu, reference_vec.data(), width, height, UG_format, logs);
+    check((uint8_t *) dst_cpu,(uint8_t *) reference_vec.data(), width, height, UG_format, logs);
 
     logs << "gpu implementation time: " << std::fixed  << std::setprecision(10) << count_gpu << "ms\n"
          << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n"
