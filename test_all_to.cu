@@ -211,7 +211,7 @@ int main(int argc, char *argv[]){
     int width = atoi(argv[1]);
     int height = atoi(argv[2]);
     std::ifstream fin(argv[3], std::ifstream::binary);
-    std::ofstream fout1("conv_data", std::ofstream::binary);
+    std::ofstream fout1("logs_to", std::ofstream::binary);
 
     size_t in_size = vc_get_datalen(width, height, RGB);
     std::vector<unsigned char> fin_data(in_size);

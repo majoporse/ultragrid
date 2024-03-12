@@ -271,7 +271,7 @@ int main(int argc, char *argv[]){
     int height = atoi(argv[2]);
 
     std::ifstream fin(argv[3], std::ifstream::binary);
-    std::ofstream fout1("from_logs", std::ofstream::binary);
+    std::ofstream fout1("logs_from", std::ofstream::binary);
     assert (width && height && fin && fout1);
 
     size_t in_size = vc_get_datalen(width, height, RG48);
