@@ -775,7 +775,7 @@ __global__ void gbrap_to_intermediate(char * __restrict dst_buffer, int pitch, i
     }
 }
 
-template<typename IN_T, int bit_shift, bool has_alpha>
+template<typename IN_T, int bit_shift, bool has_alpha, bool bgr>
 __global__ void rgb_to_intermediate(char * __restrict dst_buffer, int pitch, int width, int height)
 {
     AVFrame *in_frame = &gpu_frame;
@@ -791,11 +791,17 @@ __global__ void rgb_to_intermediate(char * __restrict dst_buffer, int pitch, int
     IN_T *src = ((IN_T *) src_row) + (has_alpha ? 4 : 3) * x;
     uint16_t *dst = ((uint16_t *) dst_row) + 4 * x;
 
-    *dst++ = *src++ << bit_shift;
-    *dst++ = *src++ << bit_shift;
-    *dst++ = *src++ << bit_shift;
+    if constexpr (bgr){
+        *dst++ = src[2] << bit_shift;//B
+        *dst++ = src[1] << bit_shift;//G
+        *dst++ = src[0] << bit_shift;//R
+    } else{
+        *dst++ = src[0] << bit_shift;
+        *dst++ = src[1] << bit_shift;
+        *dst++ = src[2] << bit_shift;
+    }
     if constexpr (has_alpha){
-        *dst = *src;
+        *dst = src[3];
     } else{
         *dst = 0xFFFFU;
     }
@@ -1206,7 +1212,7 @@ int convert_grb_to_inter(const AVFrame *frame){
     return RGB_INTER;
 }
 
-template<typename T, int bit_shift, bool has_alpha>
+template<typename T, int bit_shift, bool has_alpha, bool bgr>
 int convert_rgb_to_inter(const AVFrame *frame){
     size_t width = frame->width;
     size_t height = frame->height;
@@ -1215,7 +1221,7 @@ int convert_rgb_to_inter(const AVFrame *frame){
     dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
 
-    rgb_to_intermediate<T, bit_shift, has_alpha><<<grid, block>>>(intermediate, pitch, width, height);
+    rgb_to_intermediate<T, bit_shift, has_alpha, bgr><<<grid, block>>>(intermediate, pitch, width, height);
     return RGB_INTER;
 }
 
@@ -1263,25 +1269,27 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         {AV_PIX_FMT_GBRAP12LE, convert_grb_to_inter<uint16_t, 4, true>},
         {AV_PIX_FMT_GBRAP16LE, convert_grb_to_inter<uint16_t, 0, true>},
 
+        {AV_PIX_FMT_BGR0, convert_rgb_to_inter<uint8_t, 8, true, true>},
+        {AV_PIX_FMT_BGRA, convert_rgb_to_inter<uint8_t, 8, true, true>},
         //RGB
-        {AV_PIX_FMT_RGB24, convert_rgb_to_inter<uint8_t, 8, false>},
-        {AV_PIX_FMT_RGB48LE, convert_rgb_to_inter<uint16_t, 0, false>},
+        {AV_PIX_FMT_RGB24, convert_rgb_to_inter<uint8_t, 8, false, false>},
+        {AV_PIX_FMT_RGB48LE, convert_rgb_to_inter<uint16_t, 0, false, false>},
 
-        {AV_PIX_FMT_RGBA64LE, convert_rgb_to_inter<uint16_t, 0, true>},
-        {AV_PIX_FMT_RGBA, convert_rgb_to_inter<uint8_t, 8, true>},
+        {AV_PIX_FMT_RGBA64LE, convert_rgb_to_inter<uint16_t, 0, true, false>},
+        {AV_PIX_FMT_RGBA, convert_rgb_to_inter<uint8_t, 8, true, false>},
 
         {AV_PIX_FMT_Y210, convert_y210_to_inter}, //idk how to test these
-#if P210_PRESENT
+// #if P210_PRESENT
         {AV_PIX_FMT_P210LE, convert_p210_to_inter},
-#endif
-#if XV3X_PRESENT
+// #endif
+// #if XV3X_PRESENT
         {AV_PIX_FMT_XV30, convert_xv30_to_inter}, //idk how to test these
         {AV_PIX_FMT_Y212, convert_y210_to_inter}, //idk how to test these
-#endif
-#if VUYX_PRESENT
+// #endif
+// #if VUYX_PRESENT
         {AV_PIX_FMT_VUYA, convert_yuva_to_inter<true>}, //idk how to test these
         {AV_PIX_FMT_VUYX, convert_yuva_to_inter<false>} //idk how to test these
-#endif
+// #endif
 };
 
 const std::map<int, void (*) (const AVFrame *frame)> conversions_from_yuv_inter = {
@@ -1342,21 +1350,21 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
 bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
     if ( frame == nullptr || conversions_to_inter.find(frame->format) == conversions_to_inter.end()
          || conversions_from_rgb_inter.find(out) == conversions_from_rgb_inter.end()){ //both should contain same keys
-        std::cout << "[from_lavc_converter] conversion not supported\n";
+        std::cout << "[from_lavc_gpu_converter] conversion not supported\n";
         return false;
     }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, Y416));
     cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
     cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
-//    *dst_ptr = (char *) malloc(vc_get_datalen(frame->width, frame->height, out));
 
     wrapper.alloc(frame);
 
     return true;
 }
 
-void from_lavc_destroy(char *ptr){
-    cudaFreeHost(ptr);
+void from_lavc_destroy(char **ptr){
+    cudaFreeHost(*ptr);
+    *ptr = nullptr;
     cudaFree(intermediate);
     cudaFree(gpu_out_buffer);
 

@@ -205,7 +205,7 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
 
     float count = 0;
     auto from_conv = get_av_to_uv_conversion(AV_format, UG_format);
-    if (!from_conv.valid){
+    if (!from_conv){
         std::cout << "not a valid conversion for cpu\n";
         av_frame_free(&converted);
         return;
@@ -213,7 +213,7 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
 
     for (int i = 0; i < 10; ++i){
         auto t1 = std::chrono::high_resolution_clock::now();
-        av_to_uv_convert(&from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, UG_format) , rgb_shift);
+        av_to_uv_convert(from_conv, (char *)reference_vec.data(), converted, width, height, vc_get_linesize(width, UG_format) , rgb_shift);
         auto t2 = std::chrono::high_resolution_clock::now();
         count += (t2-t1).count();
     }
@@ -255,7 +255,7 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
     //clean-up
     std::cout << "A "; std::cout.flush();
     av_frame_free(&converted);
-    from_lavc_destroy(dst_cpu);
+    from_lavc_destroy(&dst_cpu);
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 
@@ -274,15 +274,16 @@ int main(int argc, char *argv[]){
     std::ofstream fout1("from_logs", std::ofstream::binary);
     assert (width && height && fin && fout1);
 
-    size_t in_size = vc_get_datalen(width, height, RGB);
+    size_t in_size = vc_get_datalen(width, height, RG48);
     std::vector<char> fin_data(in_size);
-    fin.read(fin_data.data(), in_size);
+//    fin.read(fin_data.data(), in_size);
+    for (auto &a: fin_data){ a = rand(); }
 
     //RGB -> avframe
-    AVFrame *frame = get_avframe(width, height, AV_PIX_FMT_RGB24);
+    AVFrame *frame = get_avframe(width, height, AV_PIX_FMT_RGB48LE);
 
     av_image_fill_arrays(frame->data, frame->linesize, reinterpret_cast<const uint8_t *>(fin_data.data()),
-                         AV_PIX_FMT_RGB24, width, height, 1);
+                         AV_PIX_FMT_RGB48LE, width, height, 1);
 
     for (auto [in_codec, out_codec]: in_codecs)
     {

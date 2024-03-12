@@ -3,6 +3,7 @@
 #include <map>
 #include <iostream>
 #include "../src/color.h"
+#include <array>
 
 #define YUV_INTER_TO 0
 #define RGB_INTER_TO 1
@@ -13,7 +14,7 @@ char *gpu_in_buffer;
 
 AVF_GPU_wrapper gpu_wrapper;
 
-AVFrame *internal_frame = nullptr;
+AVFrame internal_frame;
 
 #define BLOCK_SIZE 32
 
@@ -128,7 +129,7 @@ __device__ void write_from_v210(const uint32_t *src, auto WRITE_RES){
     WRITE_RES(y, cb, cr);
 }
 
-template<typename IN_T, int bit_shift, bool has_alpha>
+template<typename IN_T, int bit_shift, bool has_alpha, bool bgr>
 __global__ void convert_rgb_from_inter(int width, int height, int pitch_in, char *in)
 {
     AVFrame *out_frame = &gpu_frame;
@@ -144,9 +145,15 @@ __global__ void convert_rgb_from_inter(int width, int height, int pitch_in, char
     IN_T *dst = ((IN_T *) dst_row) + (has_alpha ? 4 : 3) * x;
     uint16_t *src = ((uint16_t *) src_row) + 4 * x;
 
-    *dst++ = *src++ >> bit_shift;
-    *dst++ = *src++ >> bit_shift;
-    *dst++ = *src++ >> bit_shift;
+    if (bgr){
+        *dst++ = src[2] >> bit_shift;//B
+        *dst++ = src[1] >> bit_shift;//G
+        *dst++ = src[0] >> bit_shift;//R
+    } else{
+        *dst++ = *src++ >> bit_shift;
+        *dst++ = *src++ >> bit_shift;
+        *dst++ = *src++ >> bit_shift;
+    }
     if constexpr (has_alpha){
         *dst = *src >> bit_shift;
     }
@@ -332,18 +339,19 @@ __global__ void convert_p010le_from_inter(int width, int height, int pitch_in, c
     //src
     void *src1_row = in + (y * 2) * pitch_in;
     void *src2_row = in + (y * 2 +1) * pitch_in;
+
     uint16_t *src1 = ((uint16_t *) src1_row) + 4 * 2 * x;
     uint16_t *src2 = ((uint16_t *) src2_row) + 4 * 2 * x;
 
     // U
-    *dst_cbcr++ = ((src1[0] + src2[0] + src1[4] + src2[4]) / 4) >> bit_shift;
+    *dst_cbcr++ = (((src1[0] + src2[0] + src1[4] + src2[4]) / 4) & (0x3ff << 6)) >> bit_shift;
 
     // Y
     *dst_y1++ = src1[1] >> bit_shift;
     *dst_y2++ = src2[1] >> bit_shift;
 
     // V
-    *dst_cbcr = ((src1[2] + src2[2] + src1[6] + src2[6]) / 4) >> bit_shift;
+    *dst_cbcr = (((src1[2] + src2[2] + src1[6] + src2[6]) / 4) & (0x3ff << 6)) >> bit_shift;
 
     // Y
     *dst_y1 = src1[5] >> bit_shift;
@@ -863,12 +871,12 @@ void ayuv64_from_inter(int width, int height){
     convert_ayuv64_from_inter<<<grid, block>>>(width, height, pitch_in, intermediate_to);
 }
 
-template<typename T, int bit_shift, bool alpha>
+template<typename T, int bit_shift, bool alpha, bool bgr>
 void rgb_from_inter(int width, int height){
     size_t pitch_in = vc_get_linesize(width, Y416);
     dim3 grid = dim3((width + BLOCK_SIZE - 1) / BLOCK_SIZE, (height + BLOCK_SIZE - 1) / BLOCK_SIZE );
     dim3 block = dim3(BLOCK_SIZE, BLOCK_SIZE);
-    convert_rgb_from_inter<T, bit_shift, alpha><<<grid, block>>>(width, height, pitch_in, intermediate_to);
+    convert_rgb_from_inter<T, bit_shift, alpha, bgr><<<grid, block>>>(width, height, pitch_in, intermediate_to);
 }
 
 template<typename T, int bit_shift>
@@ -983,15 +991,15 @@ const std::map<AVPixelFormat, std::tuple<int, void (*)(int, int)>> conversions_f
         {AV_PIX_FMT_P010LE, {YUV_INTER_TO, p010le_from_inter<uint16_t, 0>}},
 
         // 8-bit YUV (NV12)
-        {AV_PIX_FMT_NV12, {YUV_INTER_TO, p010le_from_inter<char, 8>}},
+        {AV_PIX_FMT_NV12, {YUV_INTER_TO, p010le_from_inter<uint8_t, 8>}},
 
-        {AV_PIX_FMT_YUV420P, {YUV_INTER_TO, yuv420p_from_inter<char, 8>}},
-        {AV_PIX_FMT_YUV422P, {YUV_INTER_TO, yuv422p_from_inter<char, 8>}},
-        {AV_PIX_FMT_YUV444P, {YUV_INTER_TO, yuv444p_from_inter<char, 8>}},
+        {AV_PIX_FMT_YUV420P, {YUV_INTER_TO, yuv420p_from_inter<uint8_t, 8>}},
+        {AV_PIX_FMT_YUV422P, {YUV_INTER_TO, yuv422p_from_inter<uint8_t, 8>}},
+        {AV_PIX_FMT_YUV444P, {YUV_INTER_TO, yuv444p_from_inter<uint8_t, 8>}},
 
-        {AV_PIX_FMT_YUVJ420P, {YUV_INTER_TO, yuv420p_from_inter<char, 8>}},
-        {AV_PIX_FMT_YUVJ422P, {YUV_INTER_TO, yuv422p_from_inter<char, 8>}},
-        {AV_PIX_FMT_YUVJ444P, {YUV_INTER_TO, yuv444p_from_inter<char, 8>}},
+        {AV_PIX_FMT_YUVJ420P, {YUV_INTER_TO, yuv420p_from_inter<uint8_t, 8>}},
+        {AV_PIX_FMT_YUVJ422P, {YUV_INTER_TO, yuv422p_from_inter<uint8_t, 8>}},
+        {AV_PIX_FMT_YUVJ444P, {YUV_INTER_TO, yuv444p_from_inter<uint8_t, 8>}},
         // 12-bit YUV
         {AV_PIX_FMT_YUV420P12LE, {YUV_INTER_TO, yuv420p_from_inter<uint16_t, 4>}},
         {AV_PIX_FMT_YUV422P12LE, {YUV_INTER_TO, yuv422p_from_inter<uint16_t, 4>}},
@@ -1015,24 +1023,28 @@ const std::map<AVPixelFormat, std::tuple<int, void (*)(int, int)>> conversions_f
         {AV_PIX_FMT_GBRAP10LE, {RGB_INTER_TO, rgbp_from_inter<uint16_t, 6, true>}},
         {AV_PIX_FMT_GBRAP16LE, {RGB_INTER_TO, rgbp_from_inter<uint16_t, 0, true>}},
 
-        //RGB
-        {AV_PIX_FMT_RGB24, {RGB_INTER_TO, rgb_from_inter<uint8_t, 8, false>}},
-        {AV_PIX_FMT_RGB48LE, {RGB_INTER_TO, rgb_from_inter<uint16_t, 0, false>}},
+        //BGRA
+        {AV_PIX_FMT_BGR0, {RGB_INTER_TO, rgb_from_inter<uint8_t, 8, true, true>}},
+        {AV_PIX_FMT_BGRA, {RGB_INTER_TO, rgb_from_inter<uint8_t, 8, true, true>}},
 
-        {AV_PIX_FMT_RGBA64LE, {RGB_INTER_TO, rgb_from_inter<uint16_t, 0, true>}},
-        {AV_PIX_FMT_RGBA, {RGB_INTER_TO, rgb_from_inter<uint8_t, 8, true>}},
+        //RGB
+        {AV_PIX_FMT_RGB24, {RGB_INTER_TO, rgb_from_inter<uint8_t, 8, false, false>}},
+        {AV_PIX_FMT_RGB48LE, {RGB_INTER_TO, rgb_from_inter<uint16_t, 0, false, false>}},
+
+        {AV_PIX_FMT_RGBA64LE, {RGB_INTER_TO, rgb_from_inter<uint16_t, 0, true, false>}},
+        {AV_PIX_FMT_RGBA, {RGB_INTER_TO, rgb_from_inter<uint8_t, 8, true, false>}},
 
         {AV_PIX_FMT_Y210, {YUV_INTER_TO, y210_form_inter}},
 #if P210_PRESENT
-        {AV_PIX_FMT_P210LE, p210_from_inter},
+        {AV_PIX_FMT_P210LE, {YUV_INTER_TO, p210_from_inter}},
 #endif
 #if XV3X_PRESENT
-        {AV_PIX_FMT_XV30, y210_form_inter}, //idk how to test these
-        {AV_PIX_FMT_Y212, y210_form_inter}, //idk how to test these
+        {AV_PIX_FMT_XV30, {YUV_INTER_TO, y210_form_inter}}, //idk how to test these
+        {AV_PIX_FMT_Y212, {YUV_INTER_TO, y210_form_inter}}, //idk how to test these
 #endif
 #if VUYX_PRESENT
-        {AV_PIX_FMT_VUYA, vuya_from_inter<true>}, //idk how to test these
-        {AV_PIX_FMT_VUYX, vuya_from_inter<false>} //idk how to test these
+        {AV_PIX_FMT_VUYA, {YUV_INTER_TO, vuya_from_inter<true>}}, //idk how to test these
+        {AV_PIX_FMT_VUYX, {YUV_INTER_TO, vuya_from_inter<false>}} //idk how to test these
 #endif
 };
 
@@ -1042,49 +1054,73 @@ const std::map<AVPixelFormat, std::tuple<int, void (*)(int, int)>> conversions_f
 
 AVFrame *convert_to_lavc(codec_t UG_codec, const char *src) {
 
-    auto [inter, converter_from_inter] = conversions_from_inter.at(static_cast<AVPixelFormat>(internal_frame->format));
+    auto [inter, converter_from_inter] = conversions_from_inter.at(static_cast<AVPixelFormat>(internal_frame.format));
 
     //copy the image to gpu
-    cudaMemcpy(gpu_in_buffer, src, vc_get_datalen(internal_frame->width, internal_frame->height, UG_codec), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_in_buffer, src, vc_get_datalen(internal_frame.width, internal_frame.height, UG_codec), cudaMemcpyHostToDevice);
     //copy the destination to gpu
     cudaMemcpyToSymbol(gpu_frame, &(gpu_wrapper.frame), sizeof(AVFrame));
 
     if (inter == YUV_INTER_TO){
         auto converter_to = conversions_to_yuv_inter.at(UG_codec);
-        converter_to(internal_frame->width, internal_frame->height);
+        converter_to(internal_frame.width, internal_frame.height);
     } else if (inter == RGB_INTER_TO){
         auto converter_to = conversions_to_rgb_inter.at(UG_codec);
-        converter_to(internal_frame->width, internal_frame->height);
+        converter_to(internal_frame.width, internal_frame.height);
     } else {
         //error
     }
 
-    converter_from_inter(internal_frame->width, internal_frame->height);
+    converter_from_inter(internal_frame.width, internal_frame.height);
 
     //copy the converted image back to the host
-    gpu_wrapper.copy_to_host(internal_frame);
+    gpu_wrapper.copy_to_host(&internal_frame);
 
-//    av_image_fill_arrays()???
-    return internal_frame;
+    return &internal_frame;
+}
+
+std::array subsamp = {
+        AV_PIX_FMT_YUV420P,
+        AV_PIX_FMT_YUV420P10LE,
+        AV_PIX_FMT_YUV420P12LE,
+        AV_PIX_FMT_YUV420P16LE,
+        AV_PIX_FMT_NV12,
+        AV_PIX_FMT_YUVJ420P,
+        AV_PIX_FMT_P010LE,
+};
+
+void fill_AVFrmae(AVFrame *f){
+    int q = std::find(subsamp.begin(), subsamp.end(), f->format) != subsamp.end() ? 2 : 1;
+    for (int i = 0; i < 4; ++i)
+        f->linesize[i] = av_image_get_linesize((AVPixelFormat) internal_frame.format, internal_frame.width, i);
+
+    cudaMallocHost(&(f->data[0]), f->linesize[0] * f->height);
+
+    for(int i = 1; i < 4; ++i)
+        cudaMallocHost(&(f->data[i]), f->linesize[i] * f->height / q);
+}
+
+void free_host_AVFrame(AVFrame *f){
+    for(int i = 0; i < 4; ++i)
+        cudaFreeHost(f->data[i]);
 }
 
 bool to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int height){
     if (conversions_from_inter.find(AV_codec) == conversions_from_inter.end()
         || conversions_to_rgb_inter.find(UG_codec) == conversions_to_rgb_inter.end()){ //both should contain same keys
-        std::cout << "[to_lavc_converter] conversion not supported\n";
         return false;
     }
 
-    if (cudaMalloc(&intermediate_to, vc_get_datalen(width, height, Y416)) != cudaSuccess){ return false;};
-    if (cudaMalloc(&gpu_in_buffer, vc_get_datalen(width, height, UG_codec)) != cudaSuccess){ cudaFree(gpu_in_buffer);return false;};
+    if (cudaMalloc(&intermediate_to, vc_get_datalen(width, height, Y416)) != cudaSuccess) return false;
+    if (cudaMalloc(&gpu_in_buffer, vc_get_datalen(width, height, UG_codec)) != cudaSuccess){cudaFree(gpu_in_buffer);return false;}
 
-    internal_frame= av_frame_alloc();
-    internal_frame->width = width;
-    internal_frame->height = height;
-    internal_frame->format = AV_codec;
-    av_frame_get_buffer(internal_frame, 0);
+    internal_frame.width = width;
+    internal_frame.height = height;
+    internal_frame.format = AV_codec;
+//    av_frame_get_buffer(internal_frame, 0);
+    fill_AVFrmae(&internal_frame);
 
-    gpu_wrapper.alloc(internal_frame);
+    gpu_wrapper.alloc(&internal_frame);
 
     return true;
 }
@@ -1093,5 +1129,7 @@ void to_lavc_destroy(){
     cudaFree(intermediate_to);
     cudaFree(gpu_in_buffer);
     gpu_wrapper.free_from_device();
-    av_frame_free(&internal_frame);
+
+    free_host_AVFrame(&internal_frame);
+//    av_frame_free(&internal_frame);
 }

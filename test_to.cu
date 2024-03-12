@@ -85,7 +85,6 @@ int main(int argc, char *argv[]){
 
         if (from_lavc_init(frame1, RGB, &dst_cpu1)){
             convert_from_lavc(frame1, dst_cpu1, RGB);
-            from_lavc_destroy(dst_cpu1);
         }
 
     } else {
@@ -112,7 +111,7 @@ int main(int argc, char *argv[]){
         frame2->width = width;
         frame2->height = height;
         if (from_lavc_init(frame2, RGB, &dst_cpu2)){
-
+            std::cout << "ptr " << dst_cpu2;
             convert_from_lavc(frame2, dst_cpu2, RGB);
 
             uint8_t *f1, *f2;
@@ -123,7 +122,7 @@ int main(int argc, char *argv[]){
             }
             //test validity against ug
             std::cout << "maximum difference against ultragrid implementation: " << max << "\n";
-            from_lavc_destroy(dst_cpu2);
+
         }
     } else {
         std::cout << "non-existing cpu implementation\n";
@@ -142,9 +141,13 @@ int main(int argc, char *argv[]){
     int max2 = 0;
     uint8_t *final1 =(uint8_t *) dst_cpu1;
 
-    for (int i = 0; i < vc_get_datalen(width, height, RGB); ++i) {
-        max2 = std::max(std::abs(final1[i] - fin_data.data()[i]), max2);
-    }
+//    for (int i = 0; i < vc_get_datalen(width, height, RGB); ++i) {
+//        max2 = std::max(std::abs(final1[i] - fin_data.data()[i]), max2);
+//    }
     //test validity against original
     std::cout << "maximum difference against original picture:" << max2 << "\n";
+
+    from_lavc_destroy(dst_cpu2);
+    from_lavc_destroy(dst_cpu1);
+    to_lavc_destroy();
 }

@@ -17,6 +17,6 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to);
 
 bool from_lavc_init(const AVFrame*, codec_t, char **);
 
-void from_lavc_destroy(char *);
+void from_lavc_destroy(char **);
 
 #endif

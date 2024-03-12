@@ -21,40 +21,53 @@ extern "C" {
 using std::chrono::milliseconds;
 using namespace std::string_literals;
 
-const std::vector<std::tuple<AVPixelFormat, int>> out_codecs = {
-        {AV_PIX_FMT_YUV420P10LE, 2},
-        {AV_PIX_FMT_YUV444P10LE, 2},
-        {AV_PIX_FMT_YUV422P10LE, 2},
-        {AV_PIX_FMT_P010LE, 2},
-        {AV_PIX_FMT_NV12, 1},
-        {AV_PIX_FMT_YUV420P, 1},
-        {AV_PIX_FMT_YUV422P, 1},
-        {AV_PIX_FMT_YUV444P, 1},
-        {AV_PIX_FMT_YUVJ420P, 1},
-        {AV_PIX_FMT_YUVJ422P, 1},
-        {AV_PIX_FMT_YUVJ444P, 1},
-        {AV_PIX_FMT_YUV420P12LE, 2},
-        {AV_PIX_FMT_YUV422P12LE, 2},
-        {AV_PIX_FMT_YUV444P12LE, 2},
-        {AV_PIX_FMT_YUV420P16LE, 2},
-        {AV_PIX_FMT_YUV422P16LE, 2},
-        {AV_PIX_FMT_YUV444P16LE, 2},
-        {AV_PIX_FMT_AYUV64LE, 2},
-        {AV_PIX_FMT_GBRP, 1},
-        {AV_PIX_FMT_GBRAP, 1},
-        {AV_PIX_FMT_GBRP12LE, 2},
-        {AV_PIX_FMT_GBRP10LE, 2},
-        {AV_PIX_FMT_GBRP16LE, 2},
-        {AV_PIX_FMT_GBRAP12LE, 2},
-        {AV_PIX_FMT_GBRAP10LE, 2},
-        {AV_PIX_FMT_GBRAP16LE, 2},
-        {AV_PIX_FMT_RGB24, 1},
-        {AV_PIX_FMT_RGB48LE, 2},
-        {AV_PIX_FMT_RGBA64LE, 2},
-        {AV_PIX_FMT_RGBA, 1},
-        {AV_PIX_FMT_Y210, 2},
+const std::vector<std::tuple<codec_t, AVPixelFormat, int>> convs = {
+            { v210, AV_PIX_FMT_YUV420P10LE, 2},
+            { v210, AV_PIX_FMT_YUV422P10LE, 2},
+            { v210, AV_PIX_FMT_YUV444P10LE, 2},
+            { v210, AV_PIX_FMT_YUV444P16LE, 2},
+#if Y210_PRESENT
+            { v210, AV_PIX_FMT_Y210LE, 2},
+            { Y216, AV_PIX_FMT_Y210, 2},
+#endif
+            { R10k, AV_PIX_FMT_YUV444P10LE, 2},
+            { R10k, AV_PIX_FMT_YUV444P12LE, 2},
+            { R10k, AV_PIX_FMT_YUV444P16LE, 2},
+            { R12L, AV_PIX_FMT_YUV444P10LE, 2},
+            { R12L, AV_PIX_FMT_YUV444P12LE, 2},
+            { R12L, AV_PIX_FMT_YUV444P16LE, 2},
+            { RG48, AV_PIX_FMT_YUV444P10LE, 2},
+            { RG48, AV_PIX_FMT_YUV444P12LE, 2},
+            { RG48, AV_PIX_FMT_YUV444P16LE, 2},
+            { v210, AV_PIX_FMT_P010LE, 2},
+
+            { UYVY, AV_PIX_FMT_YUV422P, 1},
+            { UYVY, AV_PIX_FMT_YUVJ422P, 1},
+
+            { UYVY, AV_PIX_FMT_YUV420P, 1},
+            { UYVY, AV_PIX_FMT_YUVJ420P, 1},
+            { UYVY, AV_PIX_FMT_NV12, 1},
+            { UYVY, AV_PIX_FMT_YUV444P, 1},
+            { UYVY, AV_PIX_FMT_YUVJ444P, 1},
+            { Y216, AV_PIX_FMT_YUV422P10LE, 2},
+            { Y216, AV_PIX_FMT_YUV422P16LE, 2},
+            { Y216, AV_PIX_FMT_YUV444P16LE, 2},
+            { RGB, AV_PIX_FMT_BGR0, 1},
+            { RGB, AV_PIX_FMT_GBRP, 1},
+            { RGB, AV_PIX_FMT_YUV444P, 1},
+            { RGBA, AV_PIX_FMT_GBRP, 1},
+            { RGBA, AV_PIX_FMT_BGRA, 1},
+            { R10k, AV_PIX_FMT_BGR0, 1},
+            { R10k, AV_PIX_FMT_GBRP10LE, 2},
+            { R10k, AV_PIX_FMT_GBRP16LE, 2},
+
+            { R10k, AV_PIX_FMT_YUV422P10LE, 2},
+            { R10k, AV_PIX_FMT_YUV420P10LE, 2},
+            { R12L, AV_PIX_FMT_GBRP12LE, 2},
+            { R12L, AV_PIX_FMT_GBRP16LE, 2},
+            { RG48, AV_PIX_FMT_GBRP12LE, 2},
 };
-const std::vector<codec_t> in_codecs = {R10k,RGB,RGBA,RG48,UYVY,YUYV,R12L,v210,Y216,Y416,};
+
 
 void check(AVFrame*f1, AVFrame *f2, int bpp, std::ofstream &logs){
     int q = 1;
@@ -75,14 +88,13 @@ void check(AVFrame*f1, AVFrame *f2, int bpp, std::ofstream &logs){
         uint16_t  *d21 = (uint16_t *) f2->data[0];
         uint16_t  *d22 = (uint16_t *) f2->data[1];
         uint16_t  *d23 = (uint16_t *) f2->data[2];
-        logs << f1->linesize[0] << f1->linesize[1] << f1->linesize[2];
 
         for(int i = 0; i < f1->linesize[0] / 2 * f1->height; i++)
-            max = std::max(std::abs( d11[i] - d21[i]), max);
+            max = std::max(std::abs( (int) d11[i] - (int) d21[i]), max);
         for(int i = 0; i < f1->linesize[1] / 2 * f1->height / q; i++)
-            max = std::max(std::abs( d12[i] - d22[i]), max);
+            max = std::max(std::abs( (int) d12[i] - (int) d22[i]), max);
         for(int i = 0; i < f1->linesize[2] / 2 * f1->height / q; i++)
-            max = std::max(std::abs( d13[i] - d23[i]), max);
+            max = std::max(std::abs( (int) d13[i] - (int) d23[i]), max);
 
     } else {
         uint8_t  *d11 = (uint8_t *) f1->data[0];
@@ -93,13 +105,12 @@ void check(AVFrame*f1, AVFrame *f2, int bpp, std::ofstream &logs){
         uint8_t  *d22 = (uint8_t *) f2->data[1];
         uint8_t  *d23 = (uint8_t *) f2->data[2];
 
-        logs << f1->linesize[0] << f1->linesize[1] << f1->linesize[2];
         for(int i = 0; i < f2->linesize[0] * f2->height; i++)
-            max = std::max(std::abs( d11[i] - d21[i]), max);
+            max = std::max(std::abs( (int) d11[i] - (int) d21[i]), max);
         for(int i = 0; i < f2->linesize[1] * f2->height / q; i++)
-            max = std::max(std::abs( d12[i] - d22[i]), max);
+            max = std::max(std::abs( (int) d12[i] - (int) d22[i]), max);
         for(int i = 0; i < f2->linesize[2] * f2->height / q; i++)
-            max = std::max(std::abs( d13[i] - d23[i]), max);
+            max = std::max(std::abs( (int) d13[i] - (int) d23[i]), max);
     }
     logs << "maximum difference against ultragrid implementation: " << max << "\n";
 }
@@ -223,14 +234,12 @@ int main(int argc, char *argv[]){
           vc_get_linesize(width, RG48), 0, 8, 16);
     }
 
-    for (auto in_codec: in_codecs)
-    {
-        for (auto [out_codec, bpp]: out_codecs){
-            std::cout << get_codec_name(in_codec) << " --> "
-                      << av_get_pix_fmt_name(out_codec) << "\n";
-            benchmark(width, height, in_codec, out_codec,rg48vec.data(), fout1, bpp);
-            std::cout << cudaGetErrorString(cudaGetLastError()) << "\n"
-                      << "---------------------------------------------\n";
-        }
+    for (auto [in_codec, out_codec, bpp]: convs){
+        std::cout << get_codec_name(in_codec) << " --> "
+                  << av_get_pix_fmt_name(out_codec) << "\n";
+        benchmark(width, height, in_codec, out_codec,rg48vec.data(), fout1, bpp);
+        std::cout << cudaGetErrorString(cudaGetLastError()) << "\n"
+                  << "---------------------------------------------\n";
     }
+
 }

@@ -59,7 +59,7 @@ test_all_to: test_all_to.o from_lavc.o conv_utils.o to_lavc.o src/debug.o src/li
 	$(CUDA_CXX) $^  -o test_all_to  -lavutil -lavcodec -lswscale
 
 
-test_all_from: test_all_from.o from_lavc.o conv_utils.o src/debug.o src/libavcodec/from_lavc_vid_conv.o \
+test_all_from: test_all_from.o from_lavc.o conv_utils.o src/debug.o  src/libavcodec/from_lavc_vid_conv.o \
                                 src/libavcodec/lavc_common.o src/libavcodec/to_lavc_vid_conv.o \
                                 src/libavcodec/utils.o src/pixfmt_conv.o src/utils/color_out.o \
                                 src/utils/misc.o src/utils/pam.o src/utils/parallel_conv.o \
