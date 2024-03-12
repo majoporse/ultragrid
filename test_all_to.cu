@@ -142,7 +142,7 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
             auto t2 = std::chrono::high_resolution_clock::now();
             count += (t2-t1).count();
         }
-        count /= 100.0;
+        count /= 10.0;
 
     } else {
         std::cout << "non-existing cpu implementation\n";
@@ -169,7 +169,7 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
             cudaEventElapsedTime(&time, start, stop);
             count_gpu += time;
         }
-        count_gpu /= 100.0;
+        count_gpu /= 10.0;
     } else {
         std::cout << "error";
     }
