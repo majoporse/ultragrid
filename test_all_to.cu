@@ -159,10 +159,11 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
     AVFrame *frame1 = nullptr;
     float count_gpu = 0;
 
-    if (to_lavc_init(AV_format, UG_format, width, height)){
+    auto state = to_lavc_init(AV_format, UG_format, width, height);
+    if (state.frame){
         for (int i = 0; i < 10; ++i){
             cudaEventRecord(start, 0);
-            frame1 = convert_to_lavc(UG_format, reinterpret_cast<char *>(UG_converted.data()));
+            frame1 = convert_to_lavc(state, reinterpret_cast<char *>(UG_converted.data()));
             cudaEventRecord(stop, 0);
             cudaEventSynchronize(stop);
             float time;
@@ -195,7 +196,7 @@ void benchmark(int width, int height, codec_t UG_format, AVPixelFormat AV_format
     logs << "---------------------------------------------\n";
     logs.flush();
 
-    to_lavc_destroy();
+    to_lavc_destroy(&state);
     to_lavc_vid_conv_destroy(&conv_to_av);
 
     cudaEventDestroy(stop);

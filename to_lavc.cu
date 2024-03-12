@@ -15,8 +15,6 @@ char *gpu_in_buffer;
 
 AVF_GPU_wrapper gpu_wrapper;
 
-AVFrame internal_frame;
-
 #define BLOCK_SIZE 32
 
 /**************************************************************************************************************/
@@ -1053,31 +1051,32 @@ const std::map<AVPixelFormat, std::tuple<int, void (*)(int, int)>> conversions_f
 /*                                              INTERFACE                                                     */
 /**************************************************************************************************************/
 
-AVFrame *convert_to_lavc(codec_t UG_codec, const char *src) {
+AVFrame *convert_to_lavc(to_lavc_conv_state state, const char *src) {
+    auto internal_frame = state.frame;
+    auto UG_codec = state.to;
 
-    auto [inter, converter_from_inter] = conversions_from_inter.at(static_cast<AVPixelFormat>(internal_frame.format));
+    auto [inter, converter_from_inter] = conversions_from_inter.at(static_cast<AVPixelFormat>(internal_frame->format));
 
     //copy the image to gpu
-    cudaMemcpy(gpu_in_buffer, src, vc_get_datalen(internal_frame.width, internal_frame.height, UG_codec), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_in_buffer, src, vc_get_datalen(internal_frame->width, internal_frame->height, UG_codec), cudaMemcpyHostToDevice);
     //copy the destination to gpu
     cudaMemcpyToSymbol(gpu_frame, &(gpu_wrapper.frame), sizeof(AVFrame));
 
     if (inter == YUV_INTER_TO){
         auto converter_to = conversions_to_yuv_inter.at(UG_codec);
-        converter_to(internal_frame.width, internal_frame.height);
+        converter_to(internal_frame->width, internal_frame->height);
     } else if (inter == RGB_INTER_TO){
         auto converter_to = conversions_to_rgb_inter.at(UG_codec);
-        converter_to(internal_frame.width, internal_frame.height);
+        converter_to(internal_frame->width, internal_frame->height);
     } else {
         //error
     }
 
-    converter_from_inter(internal_frame.width, internal_frame.height);
+    converter_from_inter(internal_frame->width, internal_frame->height);
 
     //copy the converted image back to the host
-    gpu_wrapper.copy_to_host(&internal_frame);
-
-    return &internal_frame;
+    gpu_wrapper.copy_to_host(internal_frame);
+    return internal_frame;
 }
 
 std::array subsamp = {
@@ -1093,7 +1092,7 @@ std::array subsamp = {
 void fill_AVFrmae(AVFrame *f){
     int q = std::find(subsamp.begin(), subsamp.end(), f->format) != subsamp.end() ? 2 : 1;
     for (int i = 0; i < 4; ++i)
-        f->linesize[i] = av_image_get_linesize((AVPixelFormat) internal_frame.format, internal_frame.width, i);
+        f->linesize[i] = av_image_get_linesize((AVPixelFormat) f->format, f->width, i);
 
     cudaMallocHost(&(f->data[0]), f->linesize[0] * f->height);
 
@@ -1106,31 +1105,37 @@ void free_host_AVFrame(AVFrame *f){
         cudaFreeHost(f->data[i]);
 }
 
-bool to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int height){
+to_lavc_conv_state to_lavc_init(AVPixelFormat AV_codec, codec_t UG_codec, int width, int height){
     if (conversions_from_inter.find(AV_codec) == conversions_from_inter.end()
         || conversions_to_rgb_inter.find(UG_codec) == conversions_to_rgb_inter.end()){ //both should contain same keys
-        return false;
+        return {nullptr, UG_codec};
     }
 
-    if (cudaMalloc(&intermediate_to, vc_get_datalen(width, height, Y416)) != cudaSuccess) return false;
-    if (cudaMalloc(&gpu_in_buffer, vc_get_datalen(width, height, UG_codec)) != cudaSuccess){cudaFree(gpu_in_buffer);return false;}
+    if (cudaMalloc(&intermediate_to, vc_get_datalen(width, height, Y416)) != cudaSuccess)
+        return {nullptr, UG_codec};
+    if (cudaMalloc(&gpu_in_buffer, vc_get_datalen(width, height, UG_codec)) != cudaSuccess){
+        cudaFree(gpu_in_buffer);
+        return {nullptr, UG_codec};
+    }
 
-    internal_frame.width = width;
-    internal_frame.height = height;
-    internal_frame.format = AV_codec;
-//    av_frame_get_buffer(internal_frame, 0);
-    fill_AVFrmae(&internal_frame);
+    AVFrame *internal_frame = (AVFrame *) malloc(sizeof(AVFrame));
+    internal_frame->width = width;
+    internal_frame->height = height;
+    internal_frame->format = AV_codec;
+    fill_AVFrmae(internal_frame);
 
-    gpu_wrapper.alloc(&internal_frame);
+    gpu_wrapper.alloc(internal_frame);
 
-    return true;
+    return {internal_frame, UG_codec};
 }
 
-void to_lavc_destroy(){
+void to_lavc_destroy(to_lavc_conv_state *state){
+
     cudaFree(intermediate_to);
     cudaFree(gpu_in_buffer);
     gpu_wrapper.free_from_device();
 
-    free_host_AVFrame(&internal_frame);
-//    av_frame_free(&internal_frame);
+    free_host_AVFrame(state->frame);
+    free(state->frame);
+    state->frame = nullptr;
 }

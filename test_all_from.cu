@@ -222,7 +222,9 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
 
     //---------------------------------------gpu implementation
     char *dst_cpu = nullptr;
-    if (!from_lavc_init(converted, UG_format, &dst_cpu)){
+    auto state = from_lavc_init(converted, UG_format);
+
+    if (!state.ptr){
         return;
     }
 
@@ -234,7 +236,7 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
     float count_gpu = 0;
     for (int i = 0; i < 10; ++i){
         cudaEventRecord(start, 0);
-        convert_from_lavc(converted, dst_cpu, UG_format);
+        dst_cpu = convert_from_lavc(state, converted);
         cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         float time;
@@ -255,7 +257,7 @@ void benchmark(AVFrame *f1, AVPixelFormat AV_format, codec_t UG_format, std::ofs
     //clean-up
     std::cout << "A "; std::cout.flush();
     av_frame_free(&converted);
-    from_lavc_destroy(&dst_cpu);
+    from_lavc_destroy(&state);
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
 

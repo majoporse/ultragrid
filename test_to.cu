@@ -70,11 +70,12 @@ int main(int argc, char *argv[]){
     AVFrame *frame1 = nullptr;
     char *dst_cpu1 = nullptr;
     float count_gpu = 0;
-
-    if (to_lavc_init(AV_codec, UG_codec, width, height)){
+    from_lavc_conv_state from_state1;
+    auto state = to_lavc_init(AV_codec, UG_codec, width, height);
+    if (state.frame){
         for (int i = 0; i < 100; ++i){
             cudaEventRecord(start, 0);
-            frame1 = convert_to_lavc(UG_codec, reinterpret_cast<char *>(UG_converted.data()));
+            frame1 = convert_to_lavc(state, reinterpret_cast<char *>(UG_converted.data()));
             cudaEventRecord(stop, 0);
             cudaEventSynchronize(stop);
             float time;
@@ -82,9 +83,9 @@ int main(int argc, char *argv[]){
             count_gpu += time;
         }
         count_gpu /= 100.0;
-
-        if (from_lavc_init(frame1, RGB, &dst_cpu1)){
-            convert_from_lavc(frame1, dst_cpu1, RGB);
+        from_state1 = from_lavc_init(frame1, RGB);
+        if (from_state1.ptr){
+            dst_cpu1 = convert_from_lavc(from_state1, frame1);
         }
 
     } else {
@@ -93,10 +94,10 @@ int main(int argc, char *argv[]){
 
     //-------------------------------------------cpu version
     float count = 0;
-    char *dst_cpu2 = nullptr;
     int max = 0;
+    char * dst_cpu2;
     struct to_lavc_vid_conv *conv_to_av = to_lavc_vid_conv_init(UG_codec, width, height, AV_codec, 1);
-
+    from_lavc_conv_state from_state2;
     if (conv_to_av){
         AVFrame *frame2 = nullptr;
         for (int i = 0; i < 100; ++i){
@@ -110,9 +111,10 @@ int main(int argc, char *argv[]){
         frame2->format = AV_codec; //these are not set inside the UG call
         frame2->width = width;
         frame2->height = height;
-        if (from_lavc_init(frame2, RGB, &dst_cpu2)){
-            std::cout << "ptr " << dst_cpu2;
-            convert_from_lavc(frame2, dst_cpu2, RGB);
+        from_state2 = from_lavc_init(frame2, RGB);
+        if (from_state2.ptr){
+
+            dst_cpu2 = convert_from_lavc(from_state2, frame2);
 
             uint8_t *f1, *f2;
             f1 = (uint8_t *)dst_cpu1;
@@ -138,16 +140,7 @@ int main(int argc, char *argv[]){
               << "cpu implementation time: " << std::fixed  << std::setprecision(10) << count / 1000'000.0<< "ms\n";
     std::cout << cudaGetErrorString(cudaGetLastError()) << "\n";
 
-    int max2 = 0;
-    uint8_t *final1 =(uint8_t *) dst_cpu1;
-
-//    for (int i = 0; i < vc_get_datalen(width, height, RGB); ++i) {
-//        max2 = std::max(std::abs(final1[i] - fin_data.data()[i]), max2);
-//    }
-    //test validity against original
-    std::cout << "maximum difference against original picture:" << max2 << "\n";
-
-    from_lavc_destroy(dst_cpu2);
-    from_lavc_destroy(dst_cpu1);
-    to_lavc_destroy();
+    from_lavc_destroy(&from_state1);
+    from_lavc_destroy(&from_state2);
+    to_lavc_destroy(&state);
 }

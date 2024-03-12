@@ -11,12 +11,15 @@
 #include "../src/libavcodec/lavc_common.h"
 #include "../src/video_codec.h"
 
-typedef void (*conv_t)(char * __restrict dst, const AVFrame* frame);
+struct from_lavc_conv_state{
+    char * ptr;
+    codec_t to;
+};
 
-bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to);
+char * convert_from_lavc(from_lavc_conv_state state,  const AVFrame* frame);
 
-bool from_lavc_init(const AVFrame*, codec_t, char **);
+from_lavc_conv_state from_lavc_init(const AVFrame*, codec_t);
 
-void from_lavc_destroy(char **);
+void from_lavc_destroy(from_lavc_conv_state *);
 
 #endif

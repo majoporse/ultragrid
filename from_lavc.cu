@@ -1324,7 +1324,10 @@ const std::map<int, void (*) (const AVFrame *)> conversions_from_rgb_inter = {
 /*                                              INTERFACE                                                     */
 /**************************************************************************************************************/
 
-bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
+char *convert_from_lavc(from_lavc_conv_state state, const AVFrame* frame) {
+    auto dst = state.ptr;
+    auto to = state.to;
+
     wrapper.copy_to_device(frame);
 
     //copy host avframe struct to device
@@ -1344,29 +1347,31 @@ bool convert_from_lavc( const AVFrame* frame, char *dst, codec_t to) {
     }
     //copy the converted image back to the host
     cudaMemcpy(dst, gpu_out_buffer, vc_get_datalen(frame->width, frame->height, to), cudaMemcpyDeviceToHost);
-    return true;
+    return dst;
 }
 
-bool from_lavc_init(const AVFrame* frame, codec_t out, char **dst_ptr){
+from_lavc_conv_state from_lavc_init(const AVFrame* frame, codec_t out){
+    char *dst_ptr;
     if ( frame == nullptr || conversions_to_inter.find(frame->format) == conversions_to_inter.end()
          || conversions_from_rgb_inter.find(out) == conversions_from_rgb_inter.end()){ //both should contain same keys
-        std::cout << "[from_lavc_gpu_converter] conversion not supported\n";
-        return false;
+        return {nullptr, out};
     }
     cudaMalloc(&intermediate, vc_get_datalen(frame->width, frame->height, Y416));
     cudaMalloc(&gpu_out_buffer, vc_get_datalen(frame->width, frame->height, out));
-    cudaMallocHost(dst_ptr, vc_get_datalen(frame->width, frame->height, out));
+    cudaMallocHost(&dst_ptr, vc_get_datalen(frame->width, frame->height, out));
 
     wrapper.alloc(frame);
 
-    return true;
+    return {dst_ptr, out};
 }
 
-void from_lavc_destroy(char **ptr){
-    cudaFreeHost(*ptr);
-    *ptr = nullptr;
+void from_lavc_destroy(from_lavc_conv_state *state){
+    auto ptr = state->ptr;
+
+    cudaFreeHost(ptr);
     cudaFree(intermediate);
     cudaFree(gpu_out_buffer);
 
     wrapper.free_from_device();
+    state->ptr = nullptr;
 }
