@@ -1279,17 +1279,17 @@ const std::map<int, int (*) (const AVFrame *)> conversions_to_inter = {
         {AV_PIX_FMT_RGBA, convert_rgb_to_inter<uint8_t, 8, true, false>},
 
         {AV_PIX_FMT_Y210, convert_y210_to_inter}, //idk how to test these
-// #if P210_PRESENT
+#if P210_PRESENT
         {AV_PIX_FMT_P210LE, convert_p210_to_inter},
-// #endif
-// #if XV3X_PRESENT
+#endif
+#if XV3X_PRESENT
         {AV_PIX_FMT_XV30, convert_xv30_to_inter}, //idk how to test these
         {AV_PIX_FMT_Y212, convert_y210_to_inter}, //idk how to test these
-// #endif
-// #if VUYX_PRESENT
+#endif
+#if VUYX_PRESENT
         {AV_PIX_FMT_VUYA, convert_yuva_to_inter<true>}, //idk how to test these
         {AV_PIX_FMT_VUYX, convert_yuva_to_inter<false>} //idk how to test these
-// #endif
+#endif
 };
 
 const std::map<int, void (*) (const AVFrame *frame)> conversions_from_yuv_inter = {
