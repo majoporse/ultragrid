@@ -2,6 +2,7 @@
 #include "conv_utils.h"
 #include <map>
 #include <iostream>
+#include <algorithm>
 #include "../src/color.h"
 #include <array>
 
